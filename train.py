@@ -24,7 +24,7 @@ import random
 import numpy as np
 import math
 from dataset import AudioToTextDataLayer
-from helpers import monitor_asr_train_progress, process_evaluation_batch, process_evaluation_epoch, Optimization, add_blank_labels, AmpOptimizations, model_multi_gpu, print_dict, print_once
+from helpers import monitor_asr_train_progress, process_evaluation_batch, process_evaluation_epoch, Optimization, add_blank_label, AmpOptimizations, model_multi_gpu, print_dict, print_once
 from model_rnnt import AudioPreprocessing, RNNT, GreedyRNNT
 from decoders import RNNTGreedyDecoder
 from loss import RNNTLoss
@@ -238,7 +238,7 @@ def main(args):
 
     model_definition = toml.load(args.model_toml)
     dataset_vocab = model_definition['labels']['labels']
-    ctc_vocab = add_blank_labels(dataset_vocab)
+    ctc_vocab = add_blank_label(dataset_vocab)
 
     train_manifest = args.train_manifest
     val_manifest = args.val_manifest
