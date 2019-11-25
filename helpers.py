@@ -38,7 +38,7 @@ def print_once(msg):
     if (not torch.distributed.is_initialized() or (torch.distributed.is_initialized() and torch.distributed.get_rank() == 0)):
         print(msg)
 
-def add_ctc_labels(labels):
+def add_blank_label(labels):
     if not isinstance(labels, list):
         raise ValueError("labels must be a list of symbols")
     labels.append("<BLANK>")

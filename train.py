@@ -24,8 +24,10 @@ import random
 import numpy as np
 import math
 from dataset import AudioToTextDataLayer
-from helpers import monitor_asr_train_progress, process_evaluation_batch, process_evaluation_epoch, Optimization, add_ctc_labels, AmpOptimizations, model_multi_gpu, print_dict, print_once
-from model import AudioPreprocessing, CTCLossNM, GreedyCTCDecoder, Jasper
+from helpers import monitor_asr_train_progress, process_evaluation_batch, process_evaluation_epoch, Optimization, add_blank_labels, AmpOptimizations, model_multi_gpu, print_dict, print_once
+from model_rnnt import AudioPreprocessing, RNNT, GreedyRNNT
+from decoders import RNNTGreedyDecoder
+from loss import RNNTLoss
 from optimizers import Novograd, AdamW
 
 
@@ -72,7 +74,7 @@ def train(
         data_layer,
         data_layer_eval,
         model,
-        ctc_loss,
+        loss_fn,
         greedy_decoder,
         optimizer,
         optim_level,
@@ -85,7 +87,7 @@ def train(
         data_layer: training data layer
         data_layer_eval: evaluation data layer
         model: model ( encapsulates data processing, encoder, decoder)
-        ctc_loss: loss function
+        loss_fn: loss function
         greedy_decoder: greedy ctc decoder
         optimizer: optimizer
         optim_level: AMP optimization level
@@ -115,7 +117,7 @@ def train(
 
                 model.eval()
                 t_log_probs_e, t_encoded_len_e = model(x=(t_audio_signal_e, t_a_sig_length_e))
-                t_loss_e = ctc_loss(log_probs=t_log_probs_e, targets=t_transcript_e, input_length=t_encoded_len_e, target_length=t_transcript_len_e)
+                t_loss_e = loss_fn(log_probs=t_log_probs_e, targets=t_transcript_e, input_length=t_encoded_len_e, target_length=t_transcript_len_e)
                 t_predictions_e = greedy_decoder(log_probs=t_log_probs_e)
 
                 values_dict = dict(
@@ -167,7 +169,7 @@ def train(
             model.train()
             
             t_log_probs_t, t_encoded_len_t = model(x=(t_audio_signal_t, t_a_sig_length_t))
-            t_loss_t = ctc_loss(log_probs=t_log_probs_t, targets=t_transcript_t, input_length=t_encoded_len_t, target_length=t_transcript_len_t)
+            t_loss_t = loss_fn(log_probs=t_log_probs_t, targets=t_transcript_t, input_length=t_encoded_len_t, target_length=t_transcript_len_t)
             if args.gradient_accumulation_steps > 1:
                     t_loss_t = t_loss_t / args.gradient_accumulation_steps
 
@@ -234,19 +236,19 @@ def main(args):
     else:
         optim_level = Optimization.mxprO0
 
-    jasper_model_definition = toml.load(args.model_toml)
-    dataset_vocab = jasper_model_definition['labels']['labels']
-    ctc_vocab = add_ctc_labels(dataset_vocab)
+    model_definition = toml.load(args.model_toml)
+    dataset_vocab = model_definition['labels']['labels']
+    ctc_vocab = add_blank_labels(dataset_vocab)
 
     train_manifest = args.train_manifest
     val_manifest = args.val_manifest
-    featurizer_config = jasper_model_definition['input']
-    featurizer_config_eval = jasper_model_definition['input_eval']
+    featurizer_config = model_definition['input']
+    featurizer_config_eval = model_definition['input_eval']
     featurizer_config["optimization_level"] = optim_level
     featurizer_config_eval["optimization_level"] = optim_level
 
     sampler_type = featurizer_config.get("sampler", 'default')
-    perturb_config = jasper_model_definition.get('perturb', None)
+    perturb_config = model_definition.get('perturb', None)
     if args.pad_to_max:
         assert(args.max_duration > 0)
         featurizer_config['max_duration'] = args.max_duration
@@ -254,7 +256,7 @@ def main(args):
         featurizer_config['pad_to'] = "max"
         featurizer_config_eval['pad_to'] = "max"
     print_once('model_config')
-    print_dict(jasper_model_definition)
+    print_dict(model_definition)
 
     if args.gradient_accumulation_steps < 1:
         raise ValueError('Invalid gradient accumulation steps parameter {}'.format(args.gradient_accumulation_steps))
@@ -283,7 +285,7 @@ def main(args):
                                     pad_to_max=args.pad_to_max
                                     )
 
-    model = Jasper(feature_config=featurizer_config, jasper_model_definition=jasper_model_definition, feat_in=1024, num_classes=len(ctc_vocab))
+    model = RNNT(feature_config=featurizer_config, model_definition=model_definition, num_classes=len(ctc_vocab))
 
     if args.ckpt is not None:
         print_once("loading model from {}".format(args.ckpt))
@@ -293,11 +295,8 @@ def main(args):
     else:
         args.start_epoch = 0
 
-    ctc_loss = CTCLossNM( num_classes=len(ctc_vocab))
-    greedy_decoder = GreedyCTCDecoder()
+    loss_fn = RNNTLoss(blank=len(ctc_vocab))
 
-    print_once("Number of parameters in encoder: {0}".format(model.jasper_encoder.num_weights()))
-    print_once("Number of parameters in decode: {0}".format(model.jasper_decoder.num_weights()))
 
     N = len(data_layer)
     if sampler_type == 'default':
@@ -314,6 +313,7 @@ def main(args):
 
 
     model.cuda()
+
 
     if args.optimizer_kind == "novograd":
         optimizer = Novograd(model.parameters(),
@@ -339,11 +339,12 @@ def main(args):
 
     model = model_multi_gpu(model, multi_gpu)
 
+    greedy_decoder = RNNTGreedyDecoder(len(ctc_vocab), model)
     train(
         data_layer=data_layer,
         data_layer_eval=data_layer_eval,
         model=model,
-        ctc_loss=ctc_loss,
+        loss_fn=loss_fn,
         greedy_decoder=greedy_decoder,
         optimizer=optimizer,
         labels=ctc_vocab,
@@ -353,7 +354,7 @@ def main(args):
         args=args)
 
 def parse_args():
-    parser = argparse.ArgumentParser(description='Jasper')
+    parser = argparse.ArgumentParser(description='RNNT Training Reference')
     parser.add_argument("--local_rank", default=None, type=int)
     parser.add_argument("--batch_size", default=16, type=int, help='data batch size')
     parser.add_argument("--num_epochs", default=10, type=int, help='number of training epochs. if number of steps if specified will overwrite this')
