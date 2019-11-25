@@ -65,10 +65,10 @@ forget_gate_bias=1.0
 drop_prob=0.25
 batch_norm=false
 encoder_n_hidden=1152
-encoder_rnn_layers=2,
+encoder_rnn_layers=2
 pred_n_hidden=256
 pred_rnn_layers=2
-joint_n_hidden=512,
+joint_n_hidden=512
 rnn_type="lstm"
 
 

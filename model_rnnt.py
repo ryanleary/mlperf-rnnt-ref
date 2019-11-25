@@ -447,43 +447,42 @@ class RNNT(torch.nn.Module):
         )
 
     """
-    def __init__(self, in_features, vocab_size, relu_clip=20.0,
-                 forget_gate_bias=1.0, drop_prob=0.25, batch_norm=False,
-                 encoder_n_hidden=1152, encoder_rnn_layers=2,
-                 pred_n_hidden=256, pred_rnn_layers=2, joint_n_hidden=512,
-                 rnn_type="lstm", **kwargs):
+    def __init__(self, rnnt=None, num_classes=1, **kwargs):
         super().__init__()
         if kwargs.get("no_featurizer", False):
             self.audio_preprocessor = None
+            in_features = kwargs.get("in_features")
         else:
-            self.audio_preprocessor = AudioPreprocessing(**kwargs.get("feature_config"))
+            feat_config = kwargs.get("feature_config")
+            self.audio_preprocessor = AudioPreprocessing(**feat_config)
+            in_features = feat_config['features'] * feat_config.get("frame_splicing", 1)
         self.data_spectr_augmentation = SpectrogramAugmentation(**kwargs.get("feature_config"))
 
-        self._pred_n_hidden = pred_n_hidden
+        self._pred_n_hidden = rnnt['pred_n_hidden']
         self.encoder = self._encoder(
             in_features,
-            encoder_n_hidden,
-            encoder_rnn_layers,
-            joint_n_hidden,
-            forget_gate_bias,
-            drop_prob,
-            batch_norm,
-            rnn_type,
-            relu_clip
+            rnnt["encoder_n_hidden"],
+            rnnt["encoder_rnn_layers"],
+            rnnt["joint_n_hidden"],
+            rnnt["forget_gate_bias"],
+            rnnt["drop_prob"],
+            rnnt["batch_norm"],
+            rnnt["rnn_type"],
+            rnnt["relu_clip"]
         )
 
         self.prediction = self._predict(
-            vocab_size,
-            pred_n_hidden,
-            pred_rnn_layers,
-            forget_gate_bias,
-            drop_prob,
-            batch_norm,
-            rnn_type,
+            num_classes,
+            rnnt["pred_n_hidden"],
+            rnnt["pred_rnn_layers"],
+            rnnt["forget_gate_bias"],
+            rnnt["drop_prob"],
+            rnnt["batch_norm"],
+            rnnt["rnn_type"],
         )
 
         self.joint_net = self._joint_net(
-            vocab_size, pred_n_hidden, joint_n_hidden, drop_prob, relu_clip
+            num_classes, rnnt["pred_n_hidden"], rnnt["joint_n_hidden"], rnnt["drop_prob"], rnnt["relu_clip"]
         )
 
     def _encoder(self, in_features, encoder_n_hidden, encoder_rnn_layers,

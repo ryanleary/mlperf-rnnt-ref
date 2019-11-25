@@ -25,7 +25,7 @@ import numpy as np
 import math
 from dataset import AudioToTextDataLayer
 from helpers import monitor_asr_train_progress, process_evaluation_batch, process_evaluation_epoch, Optimization, add_blank_label, AmpOptimizations, model_multi_gpu, print_dict, print_once
-from model_rnnt import AudioPreprocessing, RNNT, GreedyRNNT
+from model_rnnt import AudioPreprocessing, RNNT
 from decoders import RNNTGreedyDecoder
 from loss import RNNTLoss
 from optimizers import Novograd, AdamW
@@ -168,8 +168,9 @@ def train(
             t_audio_signal_t, t_a_sig_length_t, t_transcript_t, t_transcript_len_t = tensors
             model.train()
             
-            t_log_probs_t, t_encoded_len_t = model(x=(t_audio_signal_t, t_a_sig_length_t))
-            t_loss_t = loss_fn(log_probs=t_log_probs_t, targets=t_transcript_t, input_length=t_encoded_len_t, target_length=t_transcript_len_t)
+            t_log_probs_t, (x_len, y_len) = model(((t_audio_signal_t, t_transcript_t), (t_a_sig_length_t, t_transcript_len_t)),)
+            #t_log_probs_t, t_encoded_len_t = model(x=(t_audio_signal_t, t_a_sig_length_t))
+            #t_loss_t = loss_fn(log_probs=t_log_probs_t, targets=t_transcript_t, input_length=t_encoded_len_t, target_length=t_transcript_len_t)
             if args.gradient_accumulation_steps > 1:
                     t_loss_t = t_loss_t / args.gradient_accumulation_steps
 
@@ -285,7 +286,7 @@ def main(args):
                                     pad_to_max=args.pad_to_max
                                     )
 
-    model = RNNT(feature_config=featurizer_config, model_definition=model_definition, num_classes=len(ctc_vocab))
+    model = RNNT(feature_config=featurizer_config, rnnt=model_definition['rnnt'], num_classes=len(ctc_vocab))
 
     if args.ckpt is not None:
         print_once("loading model from {}".format(args.ckpt))
@@ -338,7 +339,7 @@ def main(args):
         optimizer.load_state_dict(checkpoint['optimizer'])
 
     model = model_multi_gpu(model, multi_gpu)
-
+    print(model)
     greedy_decoder = RNNTGreedyDecoder(len(ctc_vocab), model)
     train(
         data_layer=data_layer,
