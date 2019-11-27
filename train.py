@@ -185,7 +185,7 @@ def train(
                 optimizer.step()
 
                 if step % args.train_frequency == 0:
-                    t_predictions_t = greedy_decoder(log_probs=t_log_probs_t)
+                    t_predictions_t = greedy_decoder.decode(t_audio_signal_t, t_transcript_len_t)
 
                     e_tensors = [t_predictions_t, t_transcript_t, t_transcript_len_t]
                     train_wer = monitor_asr_train_progress(e_tensors, labels=labels)
