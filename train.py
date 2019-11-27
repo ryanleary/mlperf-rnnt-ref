@@ -339,7 +339,7 @@ def main(args):
 
     model = model_multi_gpu(model, multi_gpu)
     print(model)
-    greedy_decoder = RNNTGreedyDecoder(len(ctc_vocab), model)
+    greedy_decoder = RNNTGreedyDecoder(len(ctc_vocab), model.module if multi_gpu else model)
     train(
         data_layer=data_layer,
         data_layer_eval=data_layer_eval,
