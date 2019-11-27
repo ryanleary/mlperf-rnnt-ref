@@ -26,6 +26,7 @@ RUN COMMIT_SHA=c6d12f9e1562833c2b4e7ad84cb22aa4ba31d18c && \
     cd build && \
     cmake .. && \
     make VERBOSE=1 && \
+	export CUDA_HOME="/usr/local/cuda" && \
     export WARP_RNNT_PATH=`pwd` && \
     export CUDA_TOOLKIT_ROOT_DIR=$CUDA_HOME && \
     export LD_LIBRARY_PATH="$CUDA_HOME/extras/CUPTI/lib64:$LD_LIBRARY_PATH" && \

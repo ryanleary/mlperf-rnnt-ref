@@ -60,7 +60,6 @@ class WaveformFeaturizer(object):
 
 constant = 1e-5
 def normalize_batch(x, seq_len, normalize_type):
-#    print ("normalize_batch: x, seq_len, shapes: ", x.shape, seq_len, seq_len.shape)
     if normalize_type == "per_feature":
         x_mean = torch.zeros((seq_len.shape[0], x.shape[1]), dtype=x.dtype,
                                                  device=x.device)
@@ -94,7 +93,7 @@ def splice_frames(x, frame_splicing):
     seq = [x]
     for n in range(1, frame_splicing):
         seq.append(torch.cat([x[:, :, :n], x[:, :, n:]], dim=2))
-    return torch.cat(seq, dim=1)
+    return torch.cat(seq, dim=1)[:, :, ::n]
 
 class SpectrogramFeatures(nn.Module):
     def __init__(self, sample_rate=8000, window_size=0.02, window_stride=0.01,
@@ -133,8 +132,11 @@ class SpectrogramFeatures(nn.Module):
         self.max_length = max_length + max_pad
 
     def get_seq_len(self, seq_len):
-        return torch.ceil(seq_len.to(dtype=torch.float) / self.hop_length).to(
+        x = torch.ceil(seq_len.to(dtype=torch.float) / self.hop_length).to(
             dtype=torch.int)
+        if self.frame_splicing > 1:
+            x = torch.ceil(x.float() / self.frame_splicing).to(dtype=torch.int)
+        return x
 
     @torch.no_grad()
     def forward(self, inp):
@@ -171,17 +173,20 @@ class SpectrogramFeatures(nn.Module):
             x = normalize_batch(x, seq_len, normalize_type=self.normalize)
 
         # mask to zero any values beyond seq_len in batch, pad to multiple of `pad_to` (for efficiency)
-        max_len = x.size(-1)
-        mask = torch.arange(max_len).to(seq_len.dtype).to(seq_len.device).expand(x.size(0), max_len) >= seq_len.unsqueeze(1)
-        x = x.masked_fill(mask.unsqueeze(1).to(device=x.device), 0)
-        del mask
+        #max_len = x.size(-1)
+        #mask = torch.arange(max_len).to(seq_len.dtype).to(seq_len.device).expand(x.size(0), max_len) >= seq_len.unsqueeze(1)
+        #x = x.masked_fill(mask.unsqueeze(1).to(device=x.device), 0)
+        #del mask
+        x = x[:, :, :seq_len.max()]   # rnnt loss requires lengths to match
         pad_to = self.pad_to
-        if pad_to == "max":
-            x = nn.functional.pad(x, (0, self.max_length - x.size(-1)))
-        elif pad_to > 0:
-            pad_amt = x.size(-1) % pad_to
-            if pad_amt != 0:
-                x = nn.functional.pad(x, (0, pad_to - pad_amt))
+        if pad_to != 0:
+            raise NotImplementedError()
+        #if pad_to == "max":
+        #    x = nn.functional.pad(x, (0, self.max_length - x.size(-1)))
+        #elif pad_to > 0:
+        #    pad_amt = x.size(-1) % pad_to
+        #    if pad_amt != 0:
+        #        x = nn.functional.pad(x, (0, pad_to - pad_amt))
 
         return x.to(dtype)
 
@@ -245,9 +250,12 @@ class FilterbankFeatures(nn.Module):
 
 
     def get_seq_len(self, seq_len):
-        return torch.ceil(seq_len.to(dtype=torch.float) / self.hop_length).to(
+        x = torch.ceil(seq_len.to(dtype=torch.float) / self.hop_length).to(
             dtype=torch.int)
             # dtype=torch.long)
+        if self.frame_splicing > 1:
+            x = torch.ceil(x.float() / self.frame_splicing).to(dtype=torch.int)
+        return x
 
     @torch.no_grad()
     def forward(self, inp):
@@ -257,8 +265,6 @@ class FilterbankFeatures(nn.Module):
 
         seq_len = self.get_seq_len(seq_len)
 
-#        print ("forward: x, seq_len, shapes: ", x.shape, seq_len, seq_len.shape)
-        
         # dither
         if self.dither > 0:
             x += self.dither * torch.randn_like(x)
@@ -292,19 +298,21 @@ class FilterbankFeatures(nn.Module):
             x = normalize_batch(x, seq_len, normalize_type=self.normalize)
 
         # mask to zero any values beyond seq_len in batch, pad to multiple of `pad_to` (for efficiency)
-        max_len = x.size(-1)
-        mask = torch.arange(max_len).to(seq_len.dtype).to(x.device).expand(x.size(0),
-                                                                           max_len) >= seq_len.unsqueeze(1)
+        #max_len = x.size(-1)
+        x = x[:, :, :seq_len.max()]   # rnnt loss requires lengths to match
+        #mask = torch.arange(max_len).to(seq_len.dtype).to(x.device).expand(x.size(0),
+        #                                                                   max_len) >= seq_len.unsqueeze(1)
 
-        x = x.masked_fill(mask.unsqueeze(1).to(device=x.device), 0)
-        del mask
+        #x = x.masked_fill(mask.unsqueeze(1).to(device=x.device), 0)
         pad_to = self.pad_to
-        if pad_to == "max":
-            x = nn.functional.pad(x, (0, self.max_length - x.size(-1)))
-        elif pad_to > 0:
-            pad_amt = x.size(-1) % pad_to
-            if pad_amt != 0:
-                x = nn.functional.pad(x, (0, pad_to - pad_amt))
+        if pad_to != 0:
+            raise NotImplementedError()
+        #if pad_to == "max":
+        #    x = nn.functional.pad(x, (0, self.max_length - x.size(-1)))
+        #elif pad_to > 0:
+        #    pad_amt = x.size(-1) % pad_to
+        #    if pad_amt != 0:
+        #        x = nn.functional.pad(x, (0, pad_to - pad_amt))
 
         return x.to(dtype)
 

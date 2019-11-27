@@ -54,7 +54,7 @@ class RNNTLoss(torch.nn.Module):
                 are padded to equal lengths.
         """
 
-        logits, (logit_lens, _) = inputs
+        logits, logit_lens = inputs
         y, y_lens = targets
 
         # cast to required types

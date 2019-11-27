@@ -57,10 +57,10 @@ def __ctc_decoder_predictions_tensor(tensor, labels):
     blank_id = len(labels) - 1
     hypotheses = []
     labels_map = dict([(i, labels[i]) for i in range(len(labels))])
-    prediction_cpu_tensor = tensor.long().cpu()
+    prediction_cpu_tensor = tensor
     # iterate over batch
-    for ind in range(prediction_cpu_tensor.shape[0]):
-        prediction = prediction_cpu_tensor[ind].numpy().tolist()
+    for ind in range(len(prediction_cpu_tensor)):
+        prediction = prediction_cpu_tensor[ind]
         # CTC decoding procedure
         decoded_prediction = []
         previous = len(labels) - 1 # id of a blank symbol

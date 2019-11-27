@@ -16,18 +16,17 @@
 #!/bin/bash
 echo "Container nvidia build = " $NVIDIA_BUILD_ID
 
-
 DATA_DIR=${1:-"/datasets/LibriSpeech"}
-MODEL_CONFIG=${2:-"configs/jasper10x5dr_sp_offline_specaugment.toml"}
+MODEL_CONFIG=${2:-"configs/default_rnnt.toml"}
 RESULT_DIR=${3:-"/results"}
 CHECKPOINT=${4:-"none"}
 CREATE_LOGFILE=${5:-"true"}
 CUDNN_BENCHMARK=${6:-"true"}
-NUM_GPUS=${7:-8}
+NUM_GPUS=${7:-1}
 PRECISION=${8:-"fp16"}
 EPOCHS=${9:-400}
 SEED=${10:-6}
-BATCH_SIZE=${11:-64}
+BATCH_SIZE=${11:-8}
 LEARNING_RATE=${12:-"0.015"}
 GRADIENT_ACCUMULATION_STEPS=${13:-1}
 LAUNCH_OPT=${LAUNCH_OPT:-"none"}
@@ -69,10 +68,11 @@ CMD+=" --seed=$SEED"
 CMD+=" --optimizer=novograd"
 CMD+=" --dataset_dir=$DATA_DIR"
 CMD+=" --val_manifest=$DATA_DIR/librispeech-dev-clean-wav.json"
-CMD+=" --train_manifest=$DATA_DIR/librispeech-train-clean-100-wav.json,$DATA_DIR/librispeech-train-clean-360-wav.json,$DATA_DIR/librispeech-train-other-500-wav.json"
+#CMD+=" --train_manifest=$DATA_DIR/librispeech-train-clean-100-wav.json,$DATA_DIR/librispeech-train-clean-360-wav.json,$DATA_DIR/librispeech-train-other-500-wav.json"
+CMD+=" --train_manifest=$DATA_DIR/librispeech-dev-clean-wav.json"
 CMD+=" --weight_decay=1e-3"
 CMD+=" --save_freq=10"
-CMD+=" --eval_freq=100"
+CMD+=" --eval_freq=100000"
 CMD+=" --train_freq=25"
 CMD+=" --lr_decay"
 CMD+=" --gradient_accumulation_steps=$GRADIENT_ACCUMULATION_STEPS "
@@ -90,10 +90,9 @@ else
 fi
 
 
-
 if [ "$CREATE_LOGFILE" = "true" ] ; then
   export GBS=$(expr $BATCH_SIZE \* $NUM_GPUS)
-  printf -v TAG "jasper_train_%s_gbs%d" "$PRECISION" $GBS
+  printf -v TAG "rnnt_train_%s_gbs%d" "$PRECISION" $GBS
   DATESTAMP=`date +'%y%m%d%H%M%S'`
   LOGFILE=$RESULT_DIR/$TAG.$DATESTAMP.log
   printf "Logs written to %s\n" "$LOGFILE"

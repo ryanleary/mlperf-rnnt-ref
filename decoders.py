@@ -1,3 +1,5 @@
+import torch
+
 import torch.nn.functional as F
 from model_rnnt import label_collate
 
@@ -49,14 +51,10 @@ class RNNTGreedyDecoder(TransducerDecoder):
         cutoff_prob: Skip to next step in search if current highest character
             probability is less than this.
     """
-    def __init__(self, blank_index, model, max_symbols_per_step=100):
+    def __init__(self, blank_index, model, max_symbols_per_step=30):
         super().__init__(blank_index, model)
         assert max_symbols_per_step is None or max_symbols_per_step > 0
         self.max_symbols = max_symbols_per_step
-
-    def __call__(self, *inp):
-        (x, y), (x_lens, y_lens) = inp
-        return self.decode(x, x_lens)
 
     def decode(self, x, out_lens):
         """Returns a list of sentences given an input batch.
@@ -70,21 +68,21 @@ class RNNTGreedyDecoder(TransducerDecoder):
         Returns:
             list containing batch number of sentences (strings).
         """
-        if self._model.is_cuda:
-            x = x.cuda()
-        if self._model.is_half:
-            x = x.half()
+        with torch.no_grad():
+            # Apply optional preprocessing
+            if self._model.audio_preprocessor is not None:
+                x, out_lens = self._model.audio_preprocessor((x, out_lens))
 
-        batch, channels, features, seq_len = x.shape
-        x = x.view(batch, channels*features, seq_len).permute(2, 0, 1)
-        logits = self._model.encode(x)
+            batch, features, seq_len = x.shape
+            x = x.view(batch, features, seq_len).permute(2, 0, 1)
+            logits = self._model.encode(x)
 
-        output = []
-        for batch_idx in range(logits.size(0)):
-            inseq = logits[batch_idx, :, :].unsqueeze(1)
-            logitlen = out_lens[batch_idx]
-            sentence = self._greedy_decode(inseq, logitlen)
-            output.append(sentence)
+            output = []
+            for batch_idx in range(logits.size(0)):
+                inseq = logits[batch_idx, :, :].unsqueeze(1)
+                logitlen = out_lens[batch_idx]
+                sentence = self._greedy_decode(inseq, logitlen)
+                output.append(sentence)
 
         return output
 

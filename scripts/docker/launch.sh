@@ -28,4 +28,5 @@ docker run -it --rm \
   -v "$CHECKPOINT_DIR":/checkpoints/ \
   -v "$RESULT_DIR":/results/ \
   -v $PWD:/code \
-  jasper bash
+  -v $PWD:/workspace/jasper \
+  mlperf-rnnt-ref bash

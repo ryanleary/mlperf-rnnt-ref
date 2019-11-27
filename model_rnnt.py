@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import numpy as np
+
 from apex import amp
 import torch
 import torch.nn as nn
@@ -76,7 +78,7 @@ class SpecAugment(nn.Module):
     def forward(self, x):
         sh = x.shape
 
-        mask = torch.zeros(x.shape).byte()
+        mask = torch.zeros(x.shape).bool()
         for idx in range(sh[0]):
             for _ in range(self.cutout_x_regions):
                 cutout_x_left = int(random.uniform(0, sh[1] - self.cutout_x_width))
@@ -106,7 +108,7 @@ class SpecCutoutRegions(nn.Module):
     def forward(self, x):
         sh = x.shape
 
-        mask = torch.zeros(x.shape).byte()
+        mask = torch.zeros(x.shape).bool()
 
         for idx in range(sh[0]):
             for i in range(self.cutout_rect_regions):
@@ -319,6 +321,7 @@ class BNRNNSum(nn.Module):
                 hs.append(h_out[0])
                 cs.append(h_out[1])
                 rnn_idx += 1
+                del h_out
 
         h_0 = torch.stack(hs, dim=0)
         c_0 = torch.stack(cs, dim=0)
@@ -552,13 +555,13 @@ class RNNT(torch.nn.Module):
 
         # Apply optional preprocessing
         if self.audio_preprocessor is not None:
-            x, x_len = self.audio_preprocessor(x)
+            x, x_lens = self.audio_preprocessor((x, x_lens))
         # Apply optional spectral augmentation
         if self.training:
             x = self.data_spectr_augmentation(input_spec=x)
 
-        batch, channels, features, seq_len = x.shape
-        x = x.view(batch, channels*features, seq_len).permute(2, 0, 1)
+        batch, features, seq_len = x.shape
+        x = x.view(batch, features, seq_len).permute(2, 0, 1)
 
         f = self.encode(x)
         g, _ = self.predict(y, state)
@@ -598,7 +601,10 @@ class RNNT(torch.nn.Module):
             y = self.prediction["embed"](y)
         else:
             B = 1 if state is None else state[0].size(1)
-            y = torch.zeros((1, B, self._pred_n_hidden)).to(device=self.encoder[0].weight.device, dtype=self.encoder[0].weight.dtype)
+            y = torch.zeros((1, B, self._pred_n_hidden)).to(
+                device=self.encoder[0].weight.device,
+                dtype=self.encoder[0].weight.dtype
+            )
 
         # preprend blank "start of sequence" symbol
         if add_sos:
@@ -608,10 +614,10 @@ class RNNT(torch.nn.Module):
         else:
             start = None   # makes del call later easier
 
-        y = y.transpose(0, 1).contiguous()   # (U + 1, B, H)
-        self.prediction["dec_rnn"]._flatten_parameters()
+        y = y.transpose(0, 1)#.contiguous()   # (U + 1, B, H)
+        #self.prediction["dec_rnn"]._flatten_parameters()
         g, hid = self.prediction["dec_rnn"](y, state)
-        g = g.transpose(0, 1).contiguous()   # (B, U + 1, H)
+        g = g.transpose(0, 1)#.contiguous()   # (B, U + 1, H)
         del y, start, state
         return g, hid
 
