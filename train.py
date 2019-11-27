@@ -169,8 +169,7 @@ def train(
             model.train()
             
             t_log_probs_t, (x_len, y_len) = model(((t_audio_signal_t, t_transcript_t), (t_a_sig_length_t, t_transcript_len_t)),)
-            #t_log_probs_t, t_encoded_len_t = model(x=(t_audio_signal_t, t_a_sig_length_t))
-            #t_loss_t = loss_fn(log_probs=t_log_probs_t, targets=t_transcript_t, input_length=t_encoded_len_t, target_length=t_transcript_len_t)
+            t_loss_t = loss_fn((t_log_probs_t, x_len), (t_transcript_t, t_transcript_len_t))
             if args.gradient_accumulation_steps > 1:
                     t_loss_t = t_loss_t / args.gradient_accumulation_steps
 
