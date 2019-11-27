@@ -22,7 +22,7 @@ RESULT_DIR=${3:-"/results"}
 CHECKPOINT=${4:-"none"}
 CREATE_LOGFILE=${5:-"true"}
 CUDNN_BENCHMARK=${6:-"true"}
-NUM_GPUS=${7:-1}
+NUM_GPUS=${7:-8}
 PRECISION=${8:-"fp16"}
 EPOCHS=${9:-400}
 SEED=${10:-6}
@@ -69,10 +69,10 @@ CMD+=" --optimizer=novograd"
 CMD+=" --dataset_dir=$DATA_DIR"
 CMD+=" --val_manifest=$DATA_DIR/librispeech-dev-clean-wav.json"
 #CMD+=" --train_manifest=$DATA_DIR/librispeech-train-clean-100-wav.json,$DATA_DIR/librispeech-train-clean-360-wav.json,$DATA_DIR/librispeech-train-other-500-wav.json"
-CMD+=" --train_manifest=$DATA_DIR/librispeech-dev-clean-wav.json"
+CMD+=" --train_manifest=${TRAIN_MANIFEST:-$DATA_DIR/librispeech-dev-clean-wav.json}"
 CMD+=" --weight_decay=1e-3"
 CMD+=" --save_freq=10"
-CMD+=" --eval_freq=100000"
+CMD+=" --eval_freq=10000000000"
 CMD+=" --train_freq=25"
 CMD+=" --lr_decay"
 CMD+=" --gradient_accumulation_steps=$GRADIENT_ACCUMULATION_STEPS "
