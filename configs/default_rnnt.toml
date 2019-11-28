@@ -29,18 +29,18 @@ normalize_transcripts = true
 trim_silence = true
 pad_to = 0   # TODO
 max_duration = 16.7
-speed_perturbation = true
+speed_perturbation = false
 
 
 cutout_rect_regions = 0
-cutout_rect_time = 60
-cutout_rect_freq = 25
+cutout_rect_time = 0 #60
+cutout_rect_freq = 0 #25
 
 
-cutout_x_regions = 2
-cutout_y_regions = 2
-cutout_x_width = 6
-cutout_y_width = 6
+cutout_x_regions = 0 #2
+cutout_y_regions = 0 #2
+cutout_x_width = 0 #6
+cutout_y_width = 0 #6
 
 
 [input_eval]
@@ -51,7 +51,7 @@ window_stride = 0.01
 window = "hann"
 features = 64
 n_fft = 512
-frame_splicing = 1
+frame_splicing = 3
 dither = 0.00001
 feat_type = "logfbank"
 normalize_transcripts = true
@@ -64,8 +64,8 @@ relu_clip=20.0
 forget_gate_bias=1.0
 drop_prob=0.25
 batch_norm=false
-encoder_n_hidden=1152
-encoder_rnn_layers=2
+encoder_n_hidden=1024
+encoder_rnn_layers=6
 pred_n_hidden=256
 pred_rnn_layers=2
 joint_n_hidden=512
