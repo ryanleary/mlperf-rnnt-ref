@@ -233,6 +233,7 @@ def main(args):
     assert(torch.cuda.is_available())
     torch.backends.cudnn.benchmark = args.cudnn
 
+    args.local_rank = int(os.environ.get('LOCAL_RANK', args.local_rank))
     # set up distributed training
     if args.local_rank is not None:
         torch.cuda.set_device(args.local_rank)

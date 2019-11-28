@@ -84,7 +84,7 @@ CMD+=" $CUDNN"
 if [ "${LAUNCH_OPT}" != "none" ]; then
    CMD="python -m $LAUNCH_OPT $CMD"
 elif [ "$NUM_GPUS" -gt 1  ] ; then
-   CMD="python3 -m torch.distributed.launch --nproc_per_node=$NUM_GPUS $CMD"
+   CMD="python3 -m multiproc --nproc_per_node=$NUM_GPUS $CMD"
 else
    CMD="python3  $CMD"
 fi
