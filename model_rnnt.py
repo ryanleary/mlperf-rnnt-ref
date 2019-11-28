@@ -495,9 +495,6 @@ class RNNT(torch.nn.Module):
             torch.nn.Linear(in_features, encoder_n_hidden),
             torch.nn.Hardtanh(min_val=0.0, max_val=relu_clip),
             torch.nn.Dropout(p=drop_prob),
-            torch.nn.Linear(encoder_n_hidden, encoder_n_hidden),
-            torch.nn.Hardtanh(min_val=0.0, max_val=relu_clip),
-            torch.nn.Dropout(p=drop_prob),
             BNRNNSum(
                 input_size=encoder_n_hidden,
                 hidden_size=encoder_n_hidden,

@@ -92,8 +92,10 @@ def splice_frames(x, frame_splicing):
     """
     seq = [x]
     for n in range(1, frame_splicing):
-        seq.append(torch.cat([x[:, :, :n], x[:, :, n:]], dim=2))
-    return torch.cat(seq, dim=1)[:, :, ::n]
+        tmp = torch.zeros_like(x)
+        tmp[:, :, :-n] = x[:, :, n:]
+        seq.append(tmp)
+    return torch.cat(seq, dim=1)[:, :, ::frame_splicing]
 
 class SpectrogramFeatures(nn.Module):
     def __init__(self, sample_rate=8000, window_size=0.02, window_stride=0.01,

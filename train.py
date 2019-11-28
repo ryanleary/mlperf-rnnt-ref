@@ -116,9 +116,15 @@ def train(
                 t_audio_signal_e, t_a_sig_length_e, t_transcript_e, t_transcript_len_e = tensors
 
                 model.eval()
-                t_log_probs_e, t_encoded_len_e = model(x=(t_audio_signal_e, t_a_sig_length_e))
-                t_loss_e = loss_fn(log_probs=t_log_probs_e, targets=t_transcript_e, input_length=t_encoded_len_e, target_length=t_transcript_len_e)
-                t_predictions_e = greedy_decoder(log_probs=t_log_probs_e)
+                t_log_probs_e, (x_len, y_len) = model(
+                    ((t_audio_signal_e, t_transcript_e), (t_a_sig_length_e, t_transcript_len_e)),
+                )
+                t_loss_e = loss_fn(
+                    (t_log_probs_e, x_len), (t_transcript_e, y_len)
+                )
+                del t_log_probs_e
+
+                t_predictions_e = greedy_decoder.decode(t_audio_signal_e, t_a_sig_length_e)
 
                 values_dict = dict(
                     loss=[t_loss_e],
@@ -167,12 +173,20 @@ def train(
 
             t_audio_signal_t, t_a_sig_length_t, t_transcript_t, t_transcript_len_t = tensors
             model.train()
-            
-            t_log_probs_t, (x_len, y_len) = model(((t_audio_signal_t, t_transcript_t), (t_a_sig_length_t, t_transcript_len_t)),)
+
+            t_log_probs_t, (x_len, y_len) = model(
+                ((t_audio_signal_t, t_transcript_t), (t_a_sig_length_t, t_transcript_len_t)),
+            )
+
+            t_loss_t = loss_fn(
+                (t_log_probs_t, x_len), (t_transcript_t, y_len)
+            )
+            del t_log_probs_t
+
             #t_log_probs_t, t_encoded_len_t = model(x=(t_audio_signal_t, t_a_sig_length_t))
             #t_loss_t = loss_fn(log_probs=t_log_probs_t, targets=t_transcript_t, input_length=t_encoded_len_t, target_length=t_transcript_len_t)
             if args.gradient_accumulation_steps > 1:
-                    t_loss_t = t_loss_t / args.gradient_accumulation_steps
+                t_loss_t = t_loss_t / args.gradient_accumulation_steps
 
             if optim_level in AmpOptimizations:
                 with amp.scale_loss(t_loss_t, optimizer) as scaled_loss:
@@ -186,7 +200,7 @@ def train(
                 optimizer.step()
 
                 if step % args.train_frequency == 0:
-                    t_predictions_t = greedy_decoder(log_probs=t_log_probs_t)
+                    t_predictions_t = greedy_decoder.decode(t_audio_signal_t, t_a_sig_length_t)
 
                     e_tensors = [t_predictions_t, t_transcript_t, t_transcript_len_t]
                     train_wer = monitor_asr_train_progress(e_tensors, labels=labels)
@@ -297,7 +311,6 @@ def main(args):
         args.start_epoch = 0
 
     loss_fn = RNNTLoss(blank=len(ctc_vocab))
-
 
     N = len(data_layer)
     if sampler_type == 'default':
