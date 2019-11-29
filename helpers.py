@@ -44,31 +44,20 @@ def add_blank_label(labels):
     labels.append("<BLANK>")
     return labels
 
-def __ctc_decoder_predictions_tensor(tensor, labels):
+def __rnnt_decoder_predictions_tensor(tensor, labels):
     """
-    Takes output of greedy ctc decoder and performs ctc decoding algorithm to
-    remove duplicates and special symbol. Returns prediction
+    Takes output of greedy rnnt decoder and converts to strings.
     Args:
         tensor: model output tensor
         label: A list of labels
     Returns:
         prediction
     """
-    blank_id = len(labels) - 1
     hypotheses = []
     labels_map = dict([(i, labels[i]) for i in range(len(labels))])
-    prediction_cpu_tensor = tensor
     # iterate over batch
-    for ind in range(len(prediction_cpu_tensor)):
-        prediction = prediction_cpu_tensor[ind]
-        # CTC decoding procedure
-        decoded_prediction = []
-        previous = len(labels) - 1 # id of a blank symbol
-        for p in prediction:
-            if (p != previous or previous == blank_id) and p != blank_id:
-                decoded_prediction.append(p)
-            previous = p
-        hypothesis = ''.join([labels_map[c] for c in decoded_prediction])
+    for ind in range(len(tensor)):
+        hypothesis = ''.join([labels_map[c] for c in tensor[ind]])
         hypotheses.append(hypothesis)
     return hypotheses
 
@@ -97,7 +86,7 @@ def monitor_asr_train_progress(tensors: list, labels: list):
             target = targets_cpu_tensor[ind][:tgt_len].numpy().tolist()
             reference = ''.join([labels_map[c] for c in target])
             references.append(reference)
-        hypotheses = __ctc_decoder_predictions_tensor(tensors[0], labels=labels)
+        hypotheses = __rnnt_decoder_predictions_tensor(tensors[0], labels=labels)
     tag = "training_batch_WER"
     wer, _, _ = word_error_rate(hypotheses, references)
     print_once('{0}: {1}'.format(tag, wer))
@@ -113,7 +102,7 @@ def __gather_losses(losses_list: list) -> list:
 def __gather_predictions(predictions_list: list, labels: list) -> list:
     results = []
     for prediction in predictions_list:
-        results += __ctc_decoder_predictions_tensor(prediction, labels=labels)
+        results += __rnnt_decoder_predictions_tensor(prediction, labels=labels)
     return results
 
 
