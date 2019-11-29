@@ -196,7 +196,7 @@ def train(
             if batch_counter % args.gradient_accumulation_steps == 0:
                 optimizer.step()
 
-                if step % args.train_frequency == 0:
+                if (step + 1) % args.train_frequency == 0:
                     t_predictions_t = greedy_decoder.decode(t_audio_signal_t, t_a_sig_length_t)
 
                     e_tensors = [t_predictions_t, t_transcript_t, t_transcript_len_t]
