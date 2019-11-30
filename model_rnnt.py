@@ -21,6 +21,8 @@ from parts.features import FeatureFactory
 from helpers import Optimization
 import random
 
+from custom_lstms import script_lstm, script_lnlstm
+
 
 jasper_activations = {
     "hardtanh": nn.Hardtanh,
@@ -462,6 +464,9 @@ class RNNT(torch.nn.Module):
         self.data_spectr_augmentation = SpectrogramAugmentation(**kwargs.get("feature_config"))
 
         self._pred_n_hidden = rnnt['pred_n_hidden']
+
+        self.encoder_n_hidden = rnnt["encoder_n_hidden"]
+        self.encoder_rnn_layers = rnnt["encoder_rnn_layers"]
         self.encoder = self._encoder(
             in_features,
             rnnt["encoder_n_hidden"],
@@ -491,30 +496,32 @@ class RNNT(torch.nn.Module):
     def _encoder(self, in_features, encoder_n_hidden, encoder_rnn_layers,
                  joint_n_hidden, forget_gate_bias, drop_prob, batch_norm,
                  rnn_type, relu_clip):
-        return torch.nn.Sequential(
-            torch.nn.Linear(in_features, encoder_n_hidden),
-            torch.nn.Hardtanh(min_val=0.0, max_val=relu_clip),
-            torch.nn.Dropout(p=drop_prob),
-            BNRNNSum(
+
+        layers = torch.nn.ModuleDict({
+            "pre": torch.nn.Sequential(
+                torch.nn.Linear(in_features, encoder_n_hidden),
+                torch.nn.Hardtanh(min_val=0.0, max_val=relu_clip),
+                torch.nn.Dropout(p=drop_prob),
+            ),
+            "lstm": script_lnlstm(
                 input_size=encoder_n_hidden,
                 hidden_size=encoder_n_hidden,
-                rnn_type=SUPPORTED_RNNS[rnn_type],
+                num_layers=encoder_rnn_layers,
                 bidirectional=False,
-                lookahead_context=None,
-                rnn_layers=encoder_rnn_layers,
-                batch_norm=batch_norm,
                 batch_first=False,
-                dropout=drop_prob,
-                forget_gate_bias=forget_gate_bias,
+                dropout=False,   # TODO: check this is being used and not constant 0.4
+                # forget_gate_bias=forget_gate_bias,
             ),
-            Lambda(lambda x: x[0], lambda_fn_desc="Access RNN output"),
-            torch.nn.Linear(encoder_n_hidden, encoder_n_hidden),
-            torch.nn.Hardtanh(min_val=0.0, max_val=relu_clip),
-            torch.nn.Dropout(p=drop_prob),
-            torch.nn.Linear(encoder_n_hidden, joint_n_hidden),
-            torch.nn.Hardtanh(min_val=0.0, max_val=relu_clip),
-            torch.nn.Dropout(p=drop_prob),
-        )
+            "post": torch.nn.Sequential(
+                torch.nn.Linear(encoder_n_hidden, encoder_n_hidden),
+                torch.nn.Hardtanh(min_val=0.0, max_val=relu_clip),
+                torch.nn.Dropout(p=drop_prob),
+                torch.nn.Linear(encoder_n_hidden, joint_n_hidden),
+                torch.nn.Hardtanh(min_val=0.0, max_val=relu_clip),
+                torch.nn.Dropout(p=drop_prob),
+            )
+        })
+        return layers
 
     def _predict(self, vocab_size, pred_n_hidden, pred_rnn_layers,
                  forget_gate_bias, drop_prob, batch_norm, rnn_type):
@@ -574,7 +581,19 @@ class RNNT(torch.nn.Module):
         Returns:
             f: (B, T, H)
         """
-        return self.encoder(x).transpose(0, 1)
+        x = self.encoder["pre"](x)
+
+        batch = x.size(1)
+        states = [
+            (torch.randn(batch, self.encoder_n_hidden, dtype=x.dtype, device=x.device),
+             torch.randn(batch, self.encoder_n_hidden, dtype=x.dtype, device=x.device))
+            for _ in range(self.encoder_rnn_layers)
+        ]
+        x, _ = self.encoder["lstm"](x, states)
+
+        x = self.encoder["post"](x)
+
+        return x.transpose(0, 1)
 
     def predict(self, y, state=None, add_sos=True):
         """
@@ -599,8 +618,8 @@ class RNNT(torch.nn.Module):
         else:
             B = 1 if state is None else state[0].size(1)
             y = torch.zeros((1, B, self._pred_n_hidden)).to(
-                device=self.encoder[0].weight.device,
-                dtype=self.encoder[0].weight.dtype
+                device=self.encoder["pre"][0].weight.device,
+                dtype=self.encoder["pre"][0].weight.dtype
             )
 
         # preprend blank "start of sequence" symbol

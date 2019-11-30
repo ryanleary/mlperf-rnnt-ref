@@ -340,13 +340,18 @@ def main(args):
     else:
         raise ValueError("invalid optimizer choice: {}".format(args.optimizer_kind))
 
+    amp.register_float_function(model.encoder["lstm"], "forward")
 
     if optim_level in AmpOptimizations:
         model, optimizer = amp.initialize(
-            min_loss_scale=1.0,
+            min_loss_scale=0.125,
             models=model,
             optimizers=optimizer,
-            opt_level=AmpOptimizations[optim_level])
+            opt_level=AmpOptimizations[optim_level]
+        )
+
+    #model.encoder["lstm"].forward.__func__ = torch.nn.Module.forward
+    #torch.jit.script(model.encoder["lstm"])
 
     if args.ckpt is not None:
         optimizer.load_state_dict(checkpoint['optimizer'])
