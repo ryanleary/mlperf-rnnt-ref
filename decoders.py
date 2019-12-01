@@ -77,6 +77,8 @@ class RNNTGreedyDecoder(TransducerDecoder):
             x = x.view(batch, features, seq_len).permute(2, 0, 1)
             logits = self._model.encode(x)
 
+            out_lens = torch.ceil(out_lens.float() / 2.0).int()
+
             output = []
             for batch_idx in range(logits.size(0)):
                 inseq = logits[batch_idx, :, :].unsqueeze(1)

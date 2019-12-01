@@ -21,7 +21,7 @@ class RNNTLoss(torch.nn.Module):
         rnnt_loss: A :py:class:`warprnnt_pytorch.RNNTLoss` instance.
     """
 
-    def __init__(self, blank: int, reduction: str = "mean"):
+    def __init__(self, blank, reduction="mean"):
         super().__init__()
         self.rnnt_loss = WarpRNNTLoss(blank=blank)
         self.use_cuda = torch.cuda.is_available()
