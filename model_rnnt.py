@@ -21,6 +21,8 @@ from parts.features import FeatureFactory
 from helpers import Optimization
 import random
 
+from custom_lstms import script_lstm, script_lnlstm
+
 
 jasper_activations = {
     "hardtanh": nn.Hardtanh,
@@ -377,12 +379,27 @@ def label_collate(labels):
     return labels
 
 
+class StackTime(torch.nn.Module):
+    def __init__(self, factor):
+        super().__init__()
+        self.factor = factor
+
+    def forward(self, x):
+        # T, B, U
+        seq = [x]
+        for i in range(1, self.factor):
+            tmp = torch.zeros_like(x)
+            tmp[:-i, :, :] = x[i:, :, :]
+            seq.append(tmp)
+        return torch.cat(seq, dim=2)[::self.factor, :, :]
+
+
 class RNNT(torch.nn.Module):
     """A Recurrent Neural Network Transducer (RNN-T).
 
     Args:
         in_features: Number of input features per step per batch.
-        vocab_size: Number of output symbols (not including blank).
+        vocab_size: Number of output symbols (inc blank).
         relu_clip: ReLU clamp value: `min(max(0, x), relu_clip)`.
         forget_gate_bias: Total initialized value of the bias used in the
             forget gate. Set to None to use PyTorch's default initialisation.
@@ -462,9 +479,19 @@ class RNNT(torch.nn.Module):
         self.data_spectr_augmentation = SpectrogramAugmentation(**kwargs.get("feature_config"))
 
         self._pred_n_hidden = rnnt['pred_n_hidden']
+
+        self.encoder_proj_size = rnnt["encoder_proj_size"]
+        self.encoder_n_hidden = rnnt["encoder_n_hidden"]
+        self.encoder_rnn_layers = rnnt["encoder_rnn_layers"]
+
+        self.pred_proj_size = rnnt["pred_proj_size"]
+        self.pred_n_hidden = rnnt["pred_n_hidden"]
+        self.pred_rnn_layers = rnnt["pred_rnn_layers"]
+
         self.encoder = self._encoder(
             in_features,
             rnnt["encoder_n_hidden"],
+            rnnt["encoder_proj_size"],
             rnnt["encoder_rnn_layers"],
             rnnt["joint_n_hidden"],
             rnnt["forget_gate_bias"],
@@ -477,6 +504,7 @@ class RNNT(torch.nn.Module):
         self.prediction = self._predict(
             num_classes,
             rnnt["pred_n_hidden"],
+            rnnt["pred_proj_size"],
             rnnt["pred_rnn_layers"],
             rnnt["forget_gate_bias"],
             rnnt["drop_prob"],
@@ -485,62 +513,70 @@ class RNNT(torch.nn.Module):
         )
 
         self.joint_net = self._joint_net(
-            num_classes, rnnt["pred_n_hidden"], rnnt["joint_n_hidden"], rnnt["drop_prob"], rnnt["relu_clip"]
+            num_classes,
+            rnnt["pred_proj_size"],
+            rnnt["encoder_proj_size"],
+            rnnt["joint_n_hidden"],
+            rnnt["drop_prob"],
+            rnnt["relu_clip"]
         )
 
-    def _encoder(self, in_features, encoder_n_hidden, encoder_rnn_layers,
-                 joint_n_hidden, forget_gate_bias, drop_prob, batch_norm,
-                 rnn_type, relu_clip):
-        return torch.nn.Sequential(
-            torch.nn.Linear(in_features, encoder_n_hidden),
-            torch.nn.Hardtanh(min_val=0.0, max_val=relu_clip),
-            torch.nn.Dropout(p=drop_prob),
-            BNRNNSum(
-                input_size=encoder_n_hidden,
+    def _encoder(self, in_features, encoder_n_hidden, encoder_proj_size,
+                 encoder_rnn_layers, joint_n_hidden, forget_gate_bias,
+                 drop_prob, batch_norm, rnn_type, relu_clip):
+
+        layers = torch.nn.ModuleDict({
+            "lstm_1": script_lnlstm(
+                input_size=in_features,
                 hidden_size=encoder_n_hidden,
-                rnn_type=SUPPORTED_RNNS[rnn_type],
+                proj_size=encoder_proj_size,
+                num_layers=2,
                 bidirectional=False,
-                lookahead_context=None,
-                rnn_layers=encoder_rnn_layers,
-                batch_norm=batch_norm,
                 batch_first=False,
-                dropout=drop_prob,
-                forget_gate_bias=forget_gate_bias,
+                dropout=False,   # TODO: check this is being used and not constant 0.4
+                # forget_gate_bias=forget_gate_bias,
             ),
-            Lambda(lambda x: x[0], lambda_fn_desc="Access RNN output"),
-            torch.nn.Linear(encoder_n_hidden, encoder_n_hidden),
-            torch.nn.Hardtanh(min_val=0.0, max_val=relu_clip),
-            torch.nn.Dropout(p=drop_prob),
-            torch.nn.Linear(encoder_n_hidden, joint_n_hidden),
-            torch.nn.Hardtanh(min_val=0.0, max_val=relu_clip),
-            torch.nn.Dropout(p=drop_prob),
-        )
-
-    def _predict(self, vocab_size, pred_n_hidden, pred_rnn_layers,
-                 forget_gate_bias, drop_prob, batch_norm, rnn_type):
-        return torch.nn.ModuleDict({
-            "embed": torch.nn.Embedding(vocab_size, pred_n_hidden),
-            "dec_rnn": BNRNNSum(
-                input_size=pred_n_hidden,
-                hidden_size=pred_n_hidden,
-                rnn_type=SUPPORTED_RNNS[rnn_type],
+            "stack_time": StackTime(factor=2),
+            "lstm_2": script_lnlstm(
+                input_size=2*encoder_proj_size,
+                hidden_size=encoder_n_hidden,
+                proj_size=encoder_proj_size,
+                num_layers=3,
                 bidirectional=False,
-                lookahead_context=None,
-                rnn_layers=pred_rnn_layers,
-                batch_norm=batch_norm,
                 batch_first=False,
-                dropout=drop_prob,
-                forget_gate_bias=forget_gate_bias
-            )
+                dropout=False,   # TODO: check this is being used and not constant 0.4
+                # forget_gate_bias=forget_gate_bias,
+            ),
         })
+        amp.register_float_function(layers["lstm_1"], "forward")
+        amp.register_float_function(layers["lstm_2"], "forward")
+        return layers
 
-    def _joint_net(self, vocab_size, pred_n_hidden, joint_n_hidden, drop_prob,
-                   relu_clip):
+    def _predict(self, vocab_size, pred_n_hidden, pred_proj_size,
+                 pred_rnn_layers, forget_gate_bias, drop_prob, batch_norm,
+                 rnn_type):
+        layers = torch.nn.ModuleDict({
+            "embed": torch.nn.Embedding(vocab_size - 1, pred_proj_size),
+            "dec_rnn": script_lnlstm(
+                input_size=pred_proj_size,
+                hidden_size=pred_n_hidden,
+                proj_size=pred_proj_size,
+                num_layers=pred_rnn_layers,
+                bidirectional=False,
+                batch_first=False,
+                dropout=False,   # TODO: check this is being used and not constant 0.4
+                # forget_gate_bias=forget_gate_bias,
+            ),
+        })
+        amp.register_float_function(layers["dec_rnn"], "forward")
+        return layers
+
+    def _joint_net(self, vocab_size, pred_n_hidden, enc_n_hidden,
+                   joint_n_hidden, drop_prob, relu_clip):
         return torch.nn.Sequential(
-            torch.nn.Linear(pred_n_hidden + joint_n_hidden, joint_n_hidden),
+            torch.nn.Linear(pred_n_hidden + enc_n_hidden, joint_n_hidden),
             torch.nn.Hardtanh(min_val=0.0, max_val=relu_clip),
-            torch.nn.Dropout(p=drop_prob),
-            torch.nn.Linear(joint_n_hidden, vocab_size + 1)
+            torch.nn.Linear(joint_n_hidden, vocab_size)
         )
 
     def forward(self, batch, state=None):
@@ -561,6 +597,9 @@ class RNNT(torch.nn.Module):
         x = x.view(batch, features, seq_len).permute(2, 0, 1)
 
         f = self.encode(x)
+
+        x_lens = torch.ceil(x_lens.float() / 2.0).int()
+
         g, _ = self.predict(y, state)
         out = self.joint(f, g)
 
@@ -574,7 +613,25 @@ class RNNT(torch.nn.Module):
         Returns:
             f: (B, T, H)
         """
-        return self.encoder(x).transpose(0, 1)
+        batch = x.size(1)
+
+        states = [
+            (torch.randn(batch, self.encoder_proj_size, dtype=x.dtype, device=x.device),
+             torch.randn(batch, self.encoder_n_hidden, dtype=x.dtype, device=x.device))
+            for _ in range(2)
+        ]
+        x, _ = self.encoder["lstm_1"](x, states)
+
+        x = self.encoder["stack_time"](x)
+
+        states = [
+            (torch.randn(batch, self.encoder_proj_size, dtype=x.dtype, device=x.device),
+             torch.randn(batch, self.encoder_n_hidden, dtype=x.dtype, device=x.device))
+            for _ in range(3)
+        ]
+        x, _ = self.encoder["lstm_2"](x, states)
+
+        return x.transpose(0, 1)
 
     def predict(self, y, state=None, add_sos=True):
         """
@@ -595,12 +652,13 @@ class RNNT(torch.nn.Module):
                         c (tensor), shape (L, B, H)
         """
         if y is not None:
+            # (B, U) -> (B, U, H)
             y = self.prediction["embed"](y)
         else:
             B = 1 if state is None else state[0].size(1)
-            y = torch.zeros((1, B, self._pred_n_hidden)).to(
-                device=self.encoder[0].weight.device,
-                dtype=self.encoder[0].weight.dtype
+            y = torch.zeros((B, 1, self.pred_proj_size)).to(
+                device=self.joint_net[0].weight.device,
+                dtype=self.joint_net[0].weight.dtype
             )
 
         # preprend blank "start of sequence" symbol
@@ -611,8 +669,15 @@ class RNNT(torch.nn.Module):
         else:
             start = None   # makes del call later easier
 
+        if state is None:
+            batch = y.size(0)
+            state = [
+                (torch.randn(batch, self.pred_proj_size, dtype=y.dtype, device=y.device),
+                 torch.randn(batch, self.pred_n_hidden, dtype=y.dtype, device=y.device))
+                for _ in range(self.pred_rnn_layers)
+            ]
+
         y = y.transpose(0, 1)#.contiguous()   # (U + 1, B, H)
-        #self.prediction["dec_rnn"]._flatten_parameters()
         g, hid = self.prediction["dec_rnn"](y, state)
         g = g.transpose(0, 1)#.contiguous()   # (B, U + 1, H)
         del y, start, state

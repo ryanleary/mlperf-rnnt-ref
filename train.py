@@ -298,7 +298,11 @@ def main(args):
                                     pad_to_max=args.pad_to_max
                                     )
 
-    model = RNNT(feature_config=featurizer_config, rnnt=model_definition['rnnt'], num_classes=len(ctc_vocab))
+    model = RNNT(
+        feature_config=featurizer_config,
+        rnnt=model_definition['rnnt'],
+        num_classes=len(ctc_vocab)
+    )
 
     if args.ckpt is not None:
         print_once("loading model from {}".format(args.ckpt))
@@ -308,7 +312,7 @@ def main(args):
     else:
         args.start_epoch = 0
 
-    loss_fn = RNNTLoss(blank=len(ctc_vocab))
+    loss_fn = RNNTLoss(blank=len(ctc_vocab) - 1)
 
     N = len(data_layer)
     if sampler_type == 'default':
@@ -338,20 +342,21 @@ def main(args):
     else:
         raise ValueError("invalid optimizer choice: {}".format(args.optimizer_kind))
 
-
     if optim_level in AmpOptimizations:
         model, optimizer = amp.initialize(
-            min_loss_scale=1.0,
+            min_loss_scale=0.125,
             models=model,
             optimizers=optimizer,
-            opt_level=AmpOptimizations[optim_level])
+            opt_level=AmpOptimizations[optim_level]
+        )
 
     if args.ckpt is not None:
         optimizer.load_state_dict(checkpoint['optimizer'])
 
     model = model_multi_gpu(model, multi_gpu)
     print(model)
-    greedy_decoder = RNNTGreedyDecoder(len(ctc_vocab), model.module if multi_gpu else model)
+    print("# parameters: ", sum(p.numel() for p in model.parameters()))
+    greedy_decoder = RNNTGreedyDecoder(len(ctc_vocab) - 1, model.module if multi_gpu else model)
     train(
         data_layer=data_layer,
         data_layer_eval=data_layer_eval,
