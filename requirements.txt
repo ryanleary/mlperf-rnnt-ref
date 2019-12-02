@@ -7,3 +7,4 @@ toml
 soundfile
 ipdb
 sox
+tensorboard==2.0.0
