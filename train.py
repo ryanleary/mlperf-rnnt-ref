@@ -295,7 +295,7 @@ def main(args):
                                     featurizer_config=featurizer_config_eval,
                                     manifest_filepath=val_manifest,
                                     labels=dataset_vocab,
-                                    batch_size=args.batch_size,
+                                    batch_size=args.eval_batch_size,
                                     multi_gpu=multi_gpu,
                                     pad_to_max=args.pad_to_max
                                     )
@@ -376,6 +376,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description='RNNT Training Reference')
     parser.add_argument("--local_rank", default=None, type=int)
     parser.add_argument("--batch_size", default=16, type=int, help='data batch size')
+    parser.add_argument("--eval_batch_size", default=1, type=int, help='eval data batch size')
     parser.add_argument("--num_epochs", default=10, type=int, help='number of training epochs. if number of steps if specified will overwrite this')
     parser.add_argument("--num_steps", default=None, type=int, help='if specified overwrites num_epochs and will only train for this number of iterations')
     parser.add_argument("--save_freq", dest="save_frequency", default=300, type=int, help='number of epochs until saving checkpoint. will save at the end of training too.')

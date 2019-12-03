@@ -20,7 +20,7 @@ sample_rate = 16000
 window_size = 0.02
 window_stride = 0.01
 window = "hann"
-features = 64
+features = 80
 n_fft = 512
 frame_splicing = 3
 dither = 0.00001
@@ -60,18 +60,17 @@ pad_to = 0
 
 
 [rnnt]
-relu_clip=20.0
-forget_gate_bias=1.0
-drop_prob=0.25
-batch_norm=false
-encoder_n_hidden=1152
-encoder_proj_size=640
-encoder_rnn_layers=4
-pred_n_hidden=1152
-pred_proj_size=640
-pred_rnn_layers=2
-joint_n_hidden=640
-rnn_type="lstm"
+rnn_type = "lstm"
+norm = "layer_norm"
+encoder_n_hidden = 1024
+encoder_pre_rnn_layers = 2
+encoder_stack_time_factor = 2
+encoder_post_rnn_layers = 3
+pred_n_hidden = 1024
+pred_rnn_layers = 2
+forget_gate_bias = 1.0
+joint_n_hidden = 640
+relu_clip = 20.0
 
 
 [labels]
