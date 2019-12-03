@@ -14,7 +14,7 @@ class DummyLogger:
         pass
 
 
-class TensorboardLogger(DummyLogger):
+class TensorBoardLogger(DummyLogger):
     def __init__(self, path, model, histogram=False):
         self.writer = tb.SummaryWriter(log_dir=str(path))
         self.model = model
