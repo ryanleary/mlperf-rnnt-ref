@@ -361,8 +361,8 @@ def main(args):
         optimizer.load_state_dict(checkpoint['optimizer'])
 
     model = model_multi_gpu(model, multi_gpu)
-    print(model)
-    print("# parameters: ", sum(p.numel() for p in model.parameters()))
+    print_once(model)
+    print_once("# parameters: {}".format(sum(p.numel() for p in model.parameters())))
     greedy_decoder = RNNTGreedyDecoder(len(ctc_vocab) - 1, model.module if multi_gpu else model)
 
     if args.tb_path and args.local_rank == 0:
