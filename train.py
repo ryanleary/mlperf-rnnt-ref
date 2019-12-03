@@ -364,7 +364,12 @@ def main(args):
     print(model)
     print("# parameters: ", sum(p.numel() for p in model.parameters()))
     greedy_decoder = RNNTGreedyDecoder(len(ctc_vocab) - 1, model.module if multi_gpu else model)
-    logger = TensorBoardLogger(args.tb_path, model.module if multi_gpu else model, args.histogram) if args.tb_path else DummyLogger
+
+    if args.tb_path and args.local_rank == 0:
+        logger = TensorBoardLogger(args.tb_path, model.module if multi_gpu else model, args.histogram)
+    else:
+        logger = DummyLogger()
+
     train(
         data_layer=data_layer,
         data_layer_eval=data_layer_eval,
