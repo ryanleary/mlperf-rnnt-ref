@@ -12,15 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import numpy as np
-
-from apex import amp
-import torch
-import torch.nn as nn
-from parts.features import FeatureFactory
-from helpers import Optimization
 import random
 
+import numpy as np
+import torch
+import torch.nn as nn
+from apex import amp
+
+from helpers import Optimization
+from parts.features import FeatureFactory
 from rnn import rnn
 from rnn import StackTime
 
@@ -137,7 +137,6 @@ class RNNT(torch.nn.Module):
     Args:
         in_features: Number of input features per step per batch.
         vocab_size: Number of output symbols (inc blank).
-        relu_clip: ReLU clamp value: `min(max(0, x), relu_clip)`.
         forget_gate_bias: Total initialized value of the bias used in the
             forget gate. Set to None to use PyTorch's default initialisation.
             (See: http://proceedings.mlr.press/v37/jozefowicz15.pdf)
@@ -195,7 +194,6 @@ class RNNT(torch.nn.Module):
             rnnt["pred_n_hidden"],
             rnnt["encoder_n_hidden"],
             rnnt["joint_n_hidden"],
-            rnnt["relu_clip"]
         )
 
     def _encoder(self, in_features, encoder_n_hidden,
@@ -239,10 +237,10 @@ class RNNT(torch.nn.Module):
         return layers
 
     def _joint_net(self, vocab_size, pred_n_hidden, enc_n_hidden,
-                   joint_n_hidden, relu_clip):
+                   joint_n_hidden):
         return torch.nn.Sequential(
             torch.nn.Linear(pred_n_hidden + enc_n_hidden, joint_n_hidden),
-            torch.nn.Hardtanh(min_val=0.0, max_val=relu_clip),
+            torch.nn.ReLU(),
             torch.nn.Linear(joint_n_hidden, vocab_size)
         )
 
@@ -281,25 +279,9 @@ class RNNT(torch.nn.Module):
                 (B, T, H), ``output_lens``
         """
         x, x_lens = x
-        batch = x.size(1)
-
-        state_kwargs = {"dtype": x.dtype, "device": x.device}
-
-        #states = [
-        #    (torch.zeros(batch, self.encoder_n_hidden, **state_kwargs),
-        #     torch.zeros(batch, self.encoder_n_hidden, **state_kwargs))
-        #    for _ in range(self.encoder_pre_rnn_layers)
-        #]
-        x, _ = self.encoder["pre_rnn"](x)
-
+        x, _ = self.encoder["pre_rnn"](x, None)
         x, x_lens = self.encoder["stack_time"]((x, x_lens))
-
-        #states = [
-        #    (torch.zeros(batch, self.encoder_n_hidden, **state_kwargs),
-        #     torch.zeros(batch, self.encoder_n_hidden, **state_kwargs))
-        #    for _ in range(self.encoder_post_rnn_layers)
-        #]
-        x, _ = self.encoder["post_rnn"](x)
+        x, _ = self.encoder["post_rnn"](x, None)
 
         return x.transpose(0, 1), x_lens
 
