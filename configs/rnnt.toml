@@ -20,7 +20,7 @@ sample_rate = 16000
 window_size = 0.02
 window_stride = 0.01
 window = "hann"
-features = 80
+features = 64
 n_fft = 512
 frame_splicing = 3
 dither = 0.00001
@@ -49,7 +49,7 @@ sample_rate = 16000
 window_size = 0.02
 window_stride = 0.01
 window = "hann"
-features = 80
+features = 64
 n_fft = 512
 frame_splicing = 3
 dither = 0.00001
@@ -61,14 +61,14 @@ pad_to = 0
 
 [rnnt]
 rnn_type = "lstm"
-encoder_n_hidden = 1024
+encoder_n_hidden = 1152
 encoder_pre_rnn_layers = 2
 encoder_stack_time_factor = 2
 encoder_post_rnn_layers = 3
-pred_n_hidden = 1024
+pred_n_hidden = 256
 pred_rnn_layers = 2
 forget_gate_bias = 1.0
-joint_n_hidden = 640
+joint_n_hidden = 512
 relu_clip = 20.0
 
 

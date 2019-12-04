@@ -21,7 +21,7 @@ def rnn(rnn, input_size, hidden_size, num_layers, norm=None,
                 input_size=input_size,
                 hidden_size=hidden_size,
                 num_layers=num_layers,
-                dropout=0.0,
+                dropout=0.250,
                 forget_gate_bias=forget_gate_bias,
                 **kwargs
             )
