@@ -177,7 +177,7 @@ def train(
 
             t_audio_signal_t, t_a_sig_length_t, t_transcript_t, t_transcript_len_t = tensors
             model.train()
-            
+
             t_log_probs_t, (x_len, y_len) = model(
                 ((t_audio_signal_t, t_transcript_t), (t_a_sig_length_t, t_transcript_len_t)),
             )

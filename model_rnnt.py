@@ -210,16 +210,16 @@ class RNNT(torch.nn.Module):
                 norm=norm,
                 forget_gate_bias=forget_gate_bias,
             ),
-#             "stack_time": StackTime(factor=encoder_stack_time_factor),
-#             "post_rnn": rnn(
-#                 rnn=rnn_type,
-#                 input_size=encoder_stack_time_factor*encoder_n_hidden,
-#                 hidden_size=encoder_n_hidden,
-#                 num_layers=encoder_post_rnn_layers,
-#                 norm=norm,
-#                 forget_gate_bias=forget_gate_bias,
-#                 norm_first_rnn=True
-#             ),
+            "stack_time": StackTime(factor=encoder_stack_time_factor),
+            "post_rnn": rnn(
+                rnn=rnn_type,
+                input_size=encoder_stack_time_factor*encoder_n_hidden,
+                hidden_size=encoder_n_hidden,
+                num_layers=encoder_post_rnn_layers,
+                norm=norm,
+                forget_gate_bias=forget_gate_bias,
+                norm_first_rnn=True
+            ),
         })
         return layers
 
@@ -292,14 +292,14 @@ class RNNT(torch.nn.Module):
         #]
         x, _ = self.encoder["pre_rnn"](x)
 
-#         x, x_lens = self.encoder["stack_time"]((x, x_lens))
+        x, x_lens = self.encoder["stack_time"]((x, x_lens))
 
-#         #states = [
-#         #    (torch.zeros(batch, self.encoder_n_hidden, **state_kwargs),
-#         #     torch.zeros(batch, self.encoder_n_hidden, **state_kwargs))
-#         #    for _ in range(self.encoder_post_rnn_layers)
-#         #]
-#         x, _ = self.encoder["post_rnn"](x)
+        #states = [
+        #    (torch.zeros(batch, self.encoder_n_hidden, **state_kwargs),
+        #     torch.zeros(batch, self.encoder_n_hidden, **state_kwargs))
+        #    for _ in range(self.encoder_post_rnn_layers)
+        #]
+        x, _ = self.encoder["post_rnn"](x)
 
         return x.transpose(0, 1), x_lens
 
