@@ -138,8 +138,8 @@ def train(
 
             # final aggregation across all workers and minibatches) and logging of results
             wer, eloss = process_evaluation_epoch(_global_var_dict)
-            logger.log_scalar('loss', eloss, epoch)
-            logger.log_scalar('wer', wer, epoch)
+            logger.log_scalar('loss', eloss, epoch, train=False)
+            logger.log_scalar('wer', wer, epoch, train=False)
 
             print_once("==========>>>>>>Evaluation Loss: {0}\n".format(eloss))
             print_once("==========>>>>>>Evaluation WER: {0}\n".format(wer))
