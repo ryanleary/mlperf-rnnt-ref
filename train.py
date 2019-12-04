@@ -30,6 +30,7 @@ from decoders import RNNTGreedyDecoder
 from loss import RNNTLoss
 from optimizers import Novograd, AdamW
 
+from tb_logger import DummyLogger, TensorBoardLogger
 
 def lr_policy(initial_lr, step, N):
     """
@@ -81,6 +82,7 @@ def train(
         labels,
         multi_gpu,
         args,
+        logger,
         fn_lr_policy=None):
     """Trains model
     Args:
@@ -96,7 +98,7 @@ def train(
         args: script input argument list
         fn_lr_policy: learning rate adjustment function
     """
-    def eval():
+    def eval(logger, epochs):
         """Evaluates model on evaluation dataset
         """
         with torch.no_grad():
@@ -136,6 +138,8 @@ def train(
 
             # final aggregation across all workers and minibatches) and logging of results
             wer, eloss = process_evaluation_epoch(_global_var_dict)
+            logger.log_scalar('loss', eloss, epoch)
+            logger.log_scalar('wer', wer, epoch)
 
             print_once("==========>>>>>>Evaluation Loss: {0}\n".format(eloss))
             print_once("==========>>>>>>Evaluation WER: {0}\n".format(wer))
@@ -173,7 +177,7 @@ def train(
 
             t_audio_signal_t, t_a_sig_length_t, t_transcript_t, t_transcript_len_t = tensors
             model.train()
-
+            
             t_log_probs_t, (x_len, y_len) = model(
                 ((t_audio_signal_t, t_transcript_t), (t_a_sig_length_t, t_transcript_len_t)),
             )
@@ -181,10 +185,8 @@ def train(
             t_loss_t = loss_fn(
                 (t_log_probs_t, x_len), (t_transcript_t, y_len)
             )
+            logger.log_scalar('loss', t_loss_t.item(), step)
             del t_log_probs_t
-
-            #t_log_probs_t, t_encoded_len_t = model(x=(t_audio_signal_t, t_a_sig_length_t))
-            #t_loss_t = loss_fn(log_probs=t_log_probs_t, targets=t_transcript_t, input_length=t_encoded_len_t, target_length=t_transcript_len_t)
             if args.gradient_accumulation_steps > 1:
                 t_loss_t = t_loss_t / args.gradient_accumulation_steps
 
@@ -199,17 +201,18 @@ def train(
             if batch_counter % args.gradient_accumulation_steps == 0:
                 optimizer.step()
 
-                if step % args.train_frequency == 0:
+                if (step + 1) % args.train_frequency == 0:
                     t_predictions_t = greedy_decoder.decode(t_audio_signal_t, t_a_sig_length_t)
 
                     e_tensors = [t_predictions_t, t_transcript_t, t_transcript_len_t]
                     train_wer = monitor_asr_train_progress(e_tensors, labels=labels)
                     print_once("Loss@Step: {0}  ::::::: {1}".format(step, str(average_loss)))
                     print_once("Step time: {0} seconds".format(time.time() - last_iter_start))
+                    logger.log_scalar('wer', train_wer, step)
 
                 if step > 0 and step % args.eval_frequency == 0:
                     print_once("Doing Evaluation ....................... ......  ... .. . .")
-                    eval()
+                    eval(logger, epoch)
                 step += 1
                 batch_counter = 0
                 average_loss = 0
@@ -226,7 +229,7 @@ def train(
             break
     print_once("Done in {0}".format(time.time() - start_time))
     print_once("Final Evaluation ....................... ......  ... .. . .")
-    eval()
+    eval(logger, epoch)
     save(model, optimizer, epoch, output_dir=args.output_dir)
 
 def main(args):
@@ -236,8 +239,10 @@ def main(args):
     assert(torch.cuda.is_available())
     torch.backends.cudnn.benchmark = args.cudnn
 
+    args.local_rank = os.environ.get('LOCAL_RANK', args.local_rank)
     # set up distributed training
     if args.local_rank is not None:
+        args.local_rank = int(args.local_rank)
         torch.cuda.set_device(args.local_rank)
         torch.distributed.init_process_group(backend='nccl', init_method='env://')
 
@@ -356,9 +361,15 @@ def main(args):
         optimizer.load_state_dict(checkpoint['optimizer'])
 
     model = model_multi_gpu(model, multi_gpu)
-    print(model)
-    print("# parameters: ", sum(p.numel() for p in model.parameters()))
-    greedy_decoder = RNNTGreedyDecoder(len(ctc_vocab) - 1, model)
+    print_once(model)
+    print_once("# parameters: {}".format(sum(p.numel() for p in model.parameters())))
+    greedy_decoder = RNNTGreedyDecoder(len(ctc_vocab) - 1, model.module if multi_gpu else model)
+
+    if args.tb_path and args.local_rank == 0:
+        logger = TensorBoardLogger(args.tb_path, model.module if multi_gpu else model, args.histogram)
+    else:
+        logger = DummyLogger()
+
     train(
         data_layer=data_layer,
         data_layer_eval=data_layer_eval,
@@ -370,6 +381,7 @@ def main(args):
         optim_level=optim_level,
         multi_gpu=multi_gpu,
         fn_lr_policy=fn_lr_policy if args.lr_decay else None,
+        logger=logger,
         args=args)
 
 def parse_args():
@@ -398,6 +410,8 @@ def parse_args():
     parser.add_argument("--output_dir", type=str, required=True, help='saves results in this directory')
     parser.add_argument("--ckpt", default=None, type=str, help="if specified continues training from given checkpoint. Otherwise starts from beginning")
     parser.add_argument("--seed", default=42, type=int, help='seed')
+    parser.add_argument("--tb_path", default=None, type=str, help='where to store tensorboard data')
+    parser.add_argument("--histogram", default=False, action='store_true', help='whether to log param and grad histograms')
     args=parser.parse_args()
     return args
 

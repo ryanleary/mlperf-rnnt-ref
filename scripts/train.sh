@@ -22,7 +22,7 @@ RESULT_DIR=${3:-"/results"}
 CHECKPOINT=${4:-"none"}
 CREATE_LOGFILE=${5:-"true"}
 CUDNN_BENCHMARK=${6:-"true"}
-NUM_GPUS=${7:-1}
+NUM_GPUS=${7:-8}
 PRECISION=${8:-"fp16"}
 EPOCHS=${9:-3000}
 SEED=${10:-6}
@@ -88,7 +88,7 @@ CMD+=" $CUDNN"
 if [ "${LAUNCH_OPT}" != "none" ]; then
    CMD="python -m $LAUNCH_OPT $CMD"
 elif [ "$NUM_GPUS" -gt 1  ] ; then
-   CMD="python3 -m torch.distributed.launch --nproc_per_node=$NUM_GPUS $CMD"
+   CMD="python3 -m multiproc --nproc_per_node=$NUM_GPUS $CMD"
 else
    CMD="python3  $CMD"
 fi
