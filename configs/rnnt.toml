@@ -33,14 +33,14 @@ speed_perturbation = false
 
 
 cutout_rect_regions = 0
-cutout_rect_time = 0 #60
-cutout_rect_freq = 0 #25
+cutout_rect_time = 60
+cutout_rect_freq = 25
 
 
-cutout_x_regions = 0 #2
-cutout_y_regions = 0 #2
-cutout_x_width = 0 #6
-cutout_y_width = 0 #6
+cutout_x_regions = 2
+cutout_y_regions = 2
+cutout_x_width = 6
+cutout_y_width = 6
 
 
 [input_eval]
