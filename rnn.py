@@ -8,7 +8,7 @@ from torch.nn import Parameter
 
 
 def rnn(rnn, input_size, hidden_size, num_layers, norm=None,
-        forget_gate_bias=1.0, **kwargs):
+        forget_gate_bias=1.0, dropout=0.0, **kwargs):
     """TODO"""
     if rnn != "lstm":
         raise ValueError(f"Unknown rnn={rnn}")
@@ -21,7 +21,7 @@ def rnn(rnn, input_size, hidden_size, num_layers, norm=None,
                 input_size=input_size,
                 hidden_size=hidden_size,
                 num_layers=num_layers,
-                dropout=0.0,
+                dropout=dropout,
                 forget_gate_bias=forget_gate_bias,
                 **kwargs
             )
@@ -32,7 +32,7 @@ def rnn(rnn, input_size, hidden_size, num_layers, norm=None,
                 hidden_size=hidden_size,
                 rnn_layers=num_layers,
                 batch_norm=True,
-                dropout=0.0,
+                dropout=dropout,
                 forget_gate_bias=forget_gate_bias,
                 **kwargs
             )
@@ -42,7 +42,7 @@ def rnn(rnn, input_size, hidden_size, num_layers, norm=None,
                 input_size=input_size,
                 hidden_size=hidden_size,
                 num_layers=num_layers,
-                dropout=0.0,
+                dropout=dropout,
                 forget_gate_bias=forget_gate_bias,
                 **kwargs
             ))
