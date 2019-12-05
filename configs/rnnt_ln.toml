@@ -71,7 +71,7 @@ pred_rnn_layers = 2
 forget_gate_bias = 1.0
 joint_n_hidden = 640
 relu_clip = 20.0
-dropout=0.0
+dropout=0.25
 
 
 [labels]
