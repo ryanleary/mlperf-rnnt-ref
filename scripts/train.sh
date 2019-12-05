@@ -24,11 +24,11 @@ CREATE_LOGFILE=${5:-"true"}
 CUDNN_BENCHMARK=${6:-"true"}
 NUM_GPUS=${7:-8}
 PRECISION=${8:-"fp16"}
-EPOCHS=${9:-3000}
+EPOCHS=${9:-100}
 SEED=${10:-6}
 BATCH_SIZE=${11:-8}
 EVAL_BATCH_SIZE=${11:-8}
-LEARNING_RATE=${12:-"0.0003"}
+LEARNING_RATE=${12:-"0.001"}
 GRADIENT_ACCUMULATION_STEPS=${13:-1}
 LAUNCH_OPT=${LAUNCH_OPT:-"none"}
 
@@ -69,15 +69,16 @@ CMD+=" --lr=$LEARNING_RATE"
 CMD+=" --seed=$SEED"
 CMD+=" --optimizer=adam"
 CMD+=" --dataset_dir=$DATA_DIR"
-#CMD+=" --val_manifest=$DATA_DIR/librispeech-dev-clean-wav.json"
+CMD+=" --val_manifest=$DATA_DIR/librispeech-dev-clean-wav.json"
+CMD+=" --train_manifest=$DATA_DIR/librispeech-train-clean-100-wav.json"
 #CMD+=" --train_manifest=$DATA_DIR/librispeech-train-clean-100-wav.json,$DATA_DIR/librispeech-train-clean-360-wav.json,$DATA_DIR/librispeech-train-other-500-wav.json"
-CMD+=" --val_manifest=$DATA_DIR/librispeech-dev-clean-wav-8.json"
-CMD+=" --train_manifest=$DATA_DIR/librispeech-dev-clean-wav-8.json"
-CMD+=" --weight_decay=0"
+#CMD+=" --val_manifest=$DATA_DIR/librispeech-dev-clean-wav-8.json"
+#CMD+=" --train_manifest=$DATA_DIR/librispeech-dev-clean-wav-8.json"
+CMD+=" --weight_decay=1e-4"
 CMD+=" --save_freq=1000"
-CMD+=" --eval_freq=10000"
+CMD+=" --eval_freq=3000"
 CMD+=" --train_freq=25"
-#CMD+=" --lr_decay"
+CMD+=" --lr_decay"
 CMD+=" --gradient_accumulation_steps=$GRADIENT_ACCUMULATION_STEPS "
 CMD+=" $CHECKPOINT"
 CMD+=" $PREC"

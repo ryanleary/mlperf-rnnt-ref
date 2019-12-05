@@ -1,6 +1,7 @@
 import math
 
 from typing import List
+from typing import Optional
 from typing import Tuple
 
 import torch
@@ -250,7 +251,7 @@ def lnlstm(input_size, hidden_size, num_layers, dropout, forget_gate_bias,
         ],
         other_layer_args=[
             LayerNormLSTMCell,
-            input_size,
+            hidden_size,
             hidden_size,
             forget_gate_bias,
         ]
@@ -337,8 +338,29 @@ class StackedLSTM(torch.nn.Module):
 
     def forward(
         self,
-        input: torch.Tensor, states: List[Tuple[torch.Tensor, torch.Tensor]]
+        input: torch.Tensor,
+        states: Optional[List[Tuple[torch.Tensor, torch.Tensor]]]
     ) -> Tuple[torch.Tensor, List[Tuple[torch.Tensor, torch.Tensor]]]:
+        if states is None:
+            states: List[Tuple[torch.Tensor, torch.Tensor]] = []
+            batch = input.size(1)
+            for layer in self.layers:
+                states.append(
+                    (torch.zeros(
+                        batch,
+                        layer.cell.hidden_size,
+                        dtype=input.dtype,
+                        device=input.device
+                     ),
+                     torch.zeros(
+                         batch,
+                         layer.cell.hidden_size,
+                         dtype=input.dtype,
+                         device=input.device
+                     )
+                    )
+                )
+
         output_states: List[Tuple[Tensor, Tensor]] = []
         output = input
         # XXX: enumerate https://github.com/pytorch/pytorch/issues/14471
