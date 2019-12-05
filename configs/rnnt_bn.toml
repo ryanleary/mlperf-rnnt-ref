@@ -29,7 +29,7 @@ normalize_transcripts = true
 trim_silence = true
 pad_to = 0   # TODO
 max_duration = 16.7
-speed_perturbation = false
+speed_perturbation = true
 
 
 cutout_rect_regions = 0
