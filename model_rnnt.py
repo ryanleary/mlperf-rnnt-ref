@@ -177,7 +177,8 @@ class RNNT(torch.nn.Module):
             rnnt["forget_gate_bias"],
             None if "norm" not in rnnt else rnnt["norm"],
             rnnt["rnn_type"],
-            rnnt["encoder_stack_time_factor"]
+            rnnt["encoder_stack_time_factor"],
+            rnnt["dropout"],
         )
 
         self.prediction = self._predict(
@@ -187,6 +188,7 @@ class RNNT(torch.nn.Module):
             rnnt["forget_gate_bias"],
             None if "norm" not in "rnnt" else rnnt["norm"],
             rnnt["rnn_type"],
+            rnnt["dropout"],
         )
 
         self.joint_net = self._joint_net(
@@ -194,11 +196,13 @@ class RNNT(torch.nn.Module):
             rnnt["pred_n_hidden"],
             rnnt["encoder_n_hidden"],
             rnnt["joint_n_hidden"],
+            rnnt["dropout"],
         )
 
     def _encoder(self, in_features, encoder_n_hidden,
                  encoder_pre_rnn_layers, encoder_post_rnn_layers,
-                 forget_gate_bias, norm, rnn_type, encoder_stack_time_factor):
+                 forget_gate_bias, norm, rnn_type, encoder_stack_time_factor,
+                 dropout):
         layers = torch.nn.ModuleDict({
             "pre_rnn": rnn(
                 rnn=rnn_type,
@@ -207,6 +211,7 @@ class RNNT(torch.nn.Module):
                 num_layers=encoder_pre_rnn_layers,
                 norm=norm,
                 forget_gate_bias=forget_gate_bias,
+                dropout=dropout,
             ),
             "stack_time": StackTime(factor=encoder_stack_time_factor),
             "post_rnn": rnn(
@@ -216,13 +221,14 @@ class RNNT(torch.nn.Module):
                 num_layers=encoder_post_rnn_layers,
                 norm=norm,
                 forget_gate_bias=forget_gate_bias,
-                norm_first_rnn=True
+                norm_first_rnn=True,
+                dropout=dropout,
             ),
         })
         return layers
 
     def _predict(self, vocab_size, pred_n_hidden, pred_rnn_layers,
-                 forget_gate_bias, norm, rnn_type):
+                 forget_gate_bias, norm, rnn_type, dropout):
         layers = torch.nn.ModuleDict({
             "embed": torch.nn.Embedding(vocab_size - 1, pred_n_hidden),
             "dec_rnn": rnn(
@@ -232,16 +238,21 @@ class RNNT(torch.nn.Module):
                 num_layers=pred_rnn_layers,
                 norm=norm,
                 forget_gate_bias=forget_gate_bias,
+                dropout=dropout,
             ),
         })
         return layers
 
     def _joint_net(self, vocab_size, pred_n_hidden, enc_n_hidden,
-                   joint_n_hidden):
-        return torch.nn.Sequential(
+                   joint_n_hidden, dropout):
+        layers = [
             torch.nn.Linear(pred_n_hidden + enc_n_hidden, joint_n_hidden),
             torch.nn.ReLU(),
+        ] + ([ torch.nn.Dropout(p=dropout), ] if dropout else [ ]) + [
             torch.nn.Linear(joint_n_hidden, vocab_size)
+        ]
+        return torch.nn.Sequential(
+                *layers
         )
 
     def forward(self, batch, state=None):

@@ -9,7 +9,7 @@ from torch.nn import Parameter
 
 
 def rnn(rnn, input_size, hidden_size, num_layers, norm=None,
-        forget_gate_bias=1.0, **kwargs):
+        forget_gate_bias=1.0, dropout=0.0, **kwargs):
     """TODO"""
     if rnn != "lstm":
         raise ValueError(f"Unknown rnn={rnn}")
@@ -18,11 +18,11 @@ def rnn(rnn, input_size, hidden_size, num_layers, norm=None,
 
     if rnn == "lstm":
         if norm is None:
-            return lstm(
+            return LstmDrop(
                 input_size=input_size,
                 hidden_size=hidden_size,
                 num_layers=num_layers,
-                dropout=0.0,
+                dropout=dropout,
                 forget_gate_bias=forget_gate_bias,
                 **kwargs
             )
@@ -33,7 +33,7 @@ def rnn(rnn, input_size, hidden_size, num_layers, norm=None,
                 hidden_size=hidden_size,
                 rnn_layers=num_layers,
                 batch_norm=True,
-                dropout=0.0,
+                dropout=dropout,
                 forget_gate_bias=forget_gate_bias,
                 **kwargs
             )
@@ -43,7 +43,7 @@ def rnn(rnn, input_size, hidden_size, num_layers, norm=None,
                 input_size=input_size,
                 hidden_size=hidden_size,
                 num_layers=num_layers,
-                dropout=0.0,
+                dropout=dropout,
                 forget_gate_bias=forget_gate_bias,
                 **kwargs
             ))
@@ -81,37 +81,51 @@ class OverLastDim(torch.nn.Module):
         return x
 
 
-def lstm(input_size, hidden_size, num_layers, dropout, forget_gate_bias,
-         **kwargs):
-    """Returns an LSTM with forget gate bias init to `forget_gate_bias`.
+class LstmDrop(torch.nn.Module):
 
-    Args:
-        input_size: See `torch.nn.LSTM`.
-        hidden_size: See `torch.nn.LSTM`.
-        num_layers: See `torch.nn.LSTM`.
-        dropout: See `torch.nn.LSTM`.
-        forget_gate_bias: For each layer and each direction, the total value of
-            to initialise the forget gate bias to.
+    def __init__(self, input_size, hidden_size, num_layers, dropout, forget_gate_bias,
+             **kwargs):
+        """Returns an LSTM with forget gate bias init to `forget_gate_bias`.
 
-    Returns:
-        A `torch.nn.LSTM`.
-    """
-    lstm = torch.nn.LSTM(
-        input_size=input_size,
-        hidden_size=hidden_size,
-        num_layers=num_layers,
-        dropout=dropout,
-    )
-    if forget_gate_bias is not None:
-        for name, v in lstm.named_parameters():
-            if "bias_ih" in name:
-                bias = getattr(lstm, name)
-                bias.data[hidden_size:2*hidden_size].fill_(forget_gate_bias)
-            if "bias_hh" in name:
-                bias = getattr(lstm, name)
-                bias.data[hidden_size:2*hidden_size].fill_(0)
+        Args:
+            input_size: See `torch.nn.LSTM`.
+            hidden_size: See `torch.nn.LSTM`.
+            num_layers: See `torch.nn.LSTM`.
+            dropout: See `torch.nn.LSTM`.
+            forget_gate_bias: For each layer and each direction, the total value of
+                to initialise the forget gate bias to.
 
-    return lstm
+        Returns:
+            A `torch.nn.LSTM`.
+        """
+        super(LstmDrop, self).__init__()
+
+        self.lstm = torch.nn.LSTM(
+            input_size=input_size,
+            hidden_size=hidden_size,
+            num_layers=num_layers,
+            dropout=dropout,
+        )
+        if forget_gate_bias is not None:
+            for name, v in self.lstm.named_parameters():
+                if "bias_ih" in name:
+                    bias = getattr(self.lstm, name)
+                    bias.data[hidden_size:2*hidden_size].fill_(forget_gate_bias)
+                if "bias_hh" in name:
+                    bias = getattr(self.lstm, name)
+                    bias.data[hidden_size:2*hidden_size].fill_(0)
+
+        self.dropout = torch.nn.Dropout(dropout) if dropout else None
+
+    def forward(self, x, h=None):
+
+        x, h = self.lstm(x, h)
+
+        if self.dropout:
+            x = self.dropout(x)
+
+        return x, h
+
 
 
 class RNNLayer(torch.nn.Module):
