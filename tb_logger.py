@@ -20,8 +20,7 @@ class TensorBoardLogger(DummyLogger):
         self.model = model
         self.histogram = histogram
 
-    def log_scalar(self, name, value, step, train=True):
-        stage = 'train' if train else 'eval'
+    def log_scalar(self, name, value, step, stage='train'):
         self.writer.add_scalar(
             f'{stage}/{name}',
             value,

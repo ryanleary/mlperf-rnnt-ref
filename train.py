@@ -74,6 +74,7 @@ def save(model, optimizer, epoch, output_dir):
 def train(
         data_layer,
         data_layer_eval,
+        data_layer_test,
         model,
         loss_fn,
         greedy_decoder,
@@ -88,6 +89,7 @@ def train(
     Args:
         data_layer: training data layer
         data_layer_eval: evaluation data layer
+        data_layer_test: test data layer
         model: model ( encapsulates data processing, encoder, decoder)
         loss_fn: loss function
         greedy_decoder: greedy ctc decoder
@@ -98,7 +100,7 @@ def train(
         args: script input argument list
         fn_lr_policy: learning rate adjustment function
     """
-    def eval(logger, epochs):
+    def eval(data_layer_eval, stage, logger, epochs):
         """Evaluates model on evaluation dataset
         """
         with torch.no_grad():
@@ -138,11 +140,11 @@ def train(
 
             # final aggregation across all workers and minibatches) and logging of results
             wer, eloss = process_evaluation_epoch(_global_var_dict)
-            logger.log_scalar('loss', eloss, epoch, train=False)
-            logger.log_scalar('wer', wer, epoch, train=False)
+            logger.log_scalar('loss', eloss, epoch, stage)
+            logger.log_scalar('wer', wer, epoch, stage)
 
-            print_once("==========>>>>>>Evaluation Loss: {0}\n".format(eloss))
-            print_once("==========>>>>>>Evaluation WER: {0}\n".format(wer))
+            print_once("==========>>>>>>{} Loss: {}\n".format('Evaluation' if stage == 'eval' else 'Test', eloss))
+            print_once("==========>>>>>>{} WER: {}\n".format('Evaluation' if stage == 'eval' else 'Test', wer))
 
     print_once("Starting .....")
     start_time = time.time()
@@ -210,9 +212,12 @@ def train(
                     print_once("Step time: {0} seconds".format(time.time() - last_iter_start))
                     logger.log_scalar('wer', train_wer, step)
 
+                if data_layer_test and step > 0 and step % args.test_frequency == 0:
+                    print_once("Doing Test ....................... ......  ... .. . .")
+                    eval(data_layer_test, 'test', logger, epoch)
                 if step > 0 and step % args.eval_frequency == 0:
                     print_once("Doing Evaluation ....................... ......  ... .. . .")
-                    eval(logger, epoch)
+                    eval(data_layer_eval, 'eval', logger, epoch)
                 step += 1
                 batch_counter = 0
                 average_loss = 0
@@ -229,7 +234,9 @@ def train(
             break
     print_once("Done in {0}".format(time.time() - start_time))
     print_once("Final Evaluation ....................... ......  ... .. . .")
-    eval(logger, epoch)
+    eval(data_layer_eval, 'eval', logger, epoch)
+    if data_layer_test:
+        eval(data_layer_test, 'test', logger, epoch)
     save(model, optimizer, epoch, output_dir=args.output_dir)
 
 def main(args):
@@ -262,6 +269,7 @@ def main(args):
 
     train_manifest = args.train_manifest
     val_manifest = args.val_manifest
+    tst_manifest = args.tst_manifest
     featurizer_config = model_definition['input']
     featurizer_config_eval = model_definition['input_eval']
     featurizer_config["optimization_level"] = optim_level
@@ -304,6 +312,19 @@ def main(args):
                                     multi_gpu=multi_gpu,
                                     pad_to_max=args.pad_to_max
                                     )
+
+    if tst_manifest:
+        data_layer_test = AudioToTextDataLayer(
+                                        dataset_dir=args.dataset_dir,
+                                        featurizer_config=featurizer_config_eval,
+                                        manifest_filepath=tst_manifest,
+                                        labels=dataset_vocab,
+                                        batch_size=args.eval_batch_size,
+                                        multi_gpu=multi_gpu,
+                                        pad_to_max=args.pad_to_max
+                                        )
+    else:
+        data_layer_test = None
 
     model = RNNT(
         feature_config=featurizer_config,
@@ -373,6 +394,7 @@ def main(args):
     train(
         data_layer=data_layer,
         data_layer_eval=data_layer_eval,
+        data_layer_test=data_layer_test,
         model=model,
         loss_fn=loss_fn,
         greedy_decoder=greedy_decoder,
@@ -393,12 +415,14 @@ def parse_args():
     parser.add_argument("--num_steps", default=None, type=int, help='if specified overwrites num_epochs and will only train for this number of iterations')
     parser.add_argument("--save_freq", dest="save_frequency", default=300, type=int, help='number of epochs until saving checkpoint. will save at the end of training too.')
     parser.add_argument("--eval_freq", dest="eval_frequency", default=200, type=int, help='number of iterations until doing evaluation on full dataset')
+    parser.add_argument("--test_freq", dest="test_frequency", default=200, type=int, help='number of iterations until doing test on full dataset')
     parser.add_argument("--train_freq", dest="train_frequency", default=25, type=int, help='number of iterations until printing training statistics on the past iteration')
     parser.add_argument("--lr", default=1e-3, type=float, help='learning rate')
     parser.add_argument("--weight_decay", default=1e-3, type=float, help='weight decay rate')
     parser.add_argument("--train_manifest", type=str, required=True, help='relative path given dataset folder of training manifest file')
     parser.add_argument("--model_toml", type=str, required=True, help='relative path given dataset folder of model configuration file')
     parser.add_argument("--val_manifest", type=str, required=True, help='relative path given dataset folder of evaluation manifest file')
+    parser.add_argument("--tst_manifest", type=str, required=False, help='relative path given dataset folder of test manifest file')
     parser.add_argument("--max_duration", type=float, help='maximum duration of audio samples for training and evaluation')
     parser.add_argument("--pad_to_max", action="store_true", default=False, help="pad sequence to max_duration")
     parser.add_argument("--gradient_accumulation_steps", default=1, type=int, help='number of accumulation steps')
