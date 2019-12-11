@@ -32,17 +32,20 @@ from optimizers import Novograd, AdamW
 
 from tb_logger import DummyLogger, TensorBoardLogger
 
-def lr_policy(initial_lr, step, N):
+def lr_decay(N, step, learning_rate):
     """
     learning rate decay
     Args:
-        initial_lr: base learning rate
+        learning_rate: base learning rate
         step: current iteration number
         N: total number of iterations over which learning rate is decayed
     """
     min_lr = 0.00001
-    res = initial_lr * ((N - step) / N) ** 2
+    res = learning_rate * ((N - step) / N) ** 2
     return max(res, min_lr)
+
+def lr_warmup(warmup_steps, step, learning_rate):
+    return min(1, (step / warmup_steps)) * learning_rate
 
 def save(model, optimizer, epoch, output_dir):
     """
@@ -84,7 +87,7 @@ def train(
         multi_gpu,
         args,
         logger,
-        fn_lr_policy=None):
+        fn_lr_policy):
     """Trains model
     Args:
         data_layer: training data layer
@@ -98,7 +101,7 @@ def train(
         labels: list of output labels
         multi_gpu: true if multi gpu training
         args: script input argument list
-        fn_lr_policy: learning rate adjustment function
+        fn_lr_policy: function returning lr in given step
     """
     def eval(data_layer_eval, stage, logger, epochs):
         """Evaluates model on evaluation dataset
@@ -170,10 +173,9 @@ def train(
 
             if batch_counter == 0:
 
-                if fn_lr_policy is not None:
-                    adjusted_lr = fn_lr_policy(step)
-                    for param_group in optimizer.param_groups:
-                            param_group['lr'] = adjusted_lr
+                adjusted_lr = fn_lr_policy(step)
+                for param_group in optimizer.param_groups:
+                        param_group['lr'] = adjusted_lr
                 optimizer.zero_grad()
                 last_iter_start = time.time()
 
@@ -353,7 +355,14 @@ def main(args):
     print_once('Have {0} steps / (gpu * epoch).'.format(args.step_per_epoch))
     print_once('-----------------')
 
-    fn_lr_policy = lambda s: lr_policy(args.lr, s, args.num_epochs * args.step_per_epoch)
+    constant_lr_policy = lambda _: args.lr
+    fn_lr_policy = constant_lr_policy
+    if args.lr_decay:
+        pre_decay_policy = fn_lr_policy
+        fn_lr_policy = lambda s: lr_decay(args.num_epochs * args.step_per_epoch, s, pre_decay_policy(s))
+    if args.lr_warmup:
+        pre_warmup_policy = fn_lr_policy
+        fn_lr_policy = lambda s: lr_warmup(args.lr_warmup, s, pre_warmup_policy(s) )
 
 
     model.cuda()
@@ -402,7 +411,7 @@ def main(args):
         labels=ctc_vocab,
         optim_level=optim_level,
         multi_gpu=multi_gpu,
-        fn_lr_policy=fn_lr_policy if args.lr_decay else None,
+        fn_lr_policy=fn_lr_policy,
         logger=logger,
         args=args)
 
@@ -429,6 +438,7 @@ def parse_args():
     parser.add_argument("--optimizer", dest="optimizer_kind", default="novograd", type=str, help='optimizer')
     parser.add_argument("--dataset_dir", dest="dataset_dir", required=True, type=str, help='root dir of dataset')
     parser.add_argument("--lr_decay", action="store_true", default=False, help='use learning rate decay')
+    parser.add_argument("--lr_warmup", type=int, default=None, help='if provided, the learning rate will linearly scale for given number of iterations from zero')
     parser.add_argument("--cudnn", action="store_true", default=False, help="enable cudnn benchmark")
     parser.add_argument("--fp16", action="store_true", default=False, help="use mixed precision training")
     parser.add_argument("--output_dir", type=str, required=True, help='saves results in this directory')
