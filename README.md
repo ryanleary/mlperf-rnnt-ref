@@ -1,15 +1,17 @@
+# DISCLAIMER
+This codebase is a work in progress. There are known and unknown bugs in the implementation, and has not been optimized in any way.
+
+MLPerf has neither finalized on a decision to add a speech recognition benchmark, nor as this implementationn/architecture as a reference implementation.
+
 # 1. Problem 
-Which benchmark is implemented, e.g. image classification
+Speech recognition accepts raw audio samples and produces a corresponding text transcription.
+
 # 2. Directions
-### Steps to configure machine
-Ideally, a list of command lines
-### Steps to download and verify data
-Ideally, a list of command lines
-### Steps to run and time
-Ideally, a list of command lines
+See https://github.com/NVIDIA/DeepLearningExamples/blob/master/PyTorch/SpeechRecognition/Jasper/README.md. This implementation shares significant code with that repository.
+
 # 3. Dataset/Environment
 ### Publication/Attribution
-Cite paper describing dataset plus any additional attribution requested by dataset authors
+["OpenSLR LibriSpeech Corpus"](http://www.openslr.org/12/) provides over 1000 hours of speech data in the form of raw audio.
 ### Data preprocessing
 What preprocessing is done to the the dataset? 
 ### Training and test data separation
@@ -28,15 +30,15 @@ Brief summary of structure of model
 ### Weight and bias initialization
 How are weights and biases initialized
 ### Loss function
-Name/description of loss function used
+Transducer Loss
 ### Optimizer
-Name of optimizer used
+TBD, currently Adam
 # 5. Quality
 ### Quality metric
-What is the target quality metric
+Word Error Rate (WER) across all words in the output text of all samples in the validation set.
 ### Quality target
 What is the numeric quality target
 ### Evaluation frequency
-How many training items between quality evaluations (typically all, evaluated every epoch)
+TBD
 ### Evaluation thoroughness
-How many test items per quality evaluation (typically all)
+TBD
