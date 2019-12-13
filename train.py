@@ -214,18 +214,18 @@ def train(
                     print_once("Step time: {0} seconds".format(time.time() - last_iter_start))
                     logger.log_scalar('wer', train_wer, step)
 
-                if data_layer_test and step > 0 and step % args.test_frequency == 0:
-                    print_once("Doing Test ....................... ......  ... .. . .")
-                    eval(data_layer_test, 'test', logger, epoch)
-                if step > 0 and step % args.eval_frequency == 0:
-                    print_once("Doing Evaluation ....................... ......  ... .. . .")
-                    eval(data_layer_eval, 'eval', logger, epoch)
                 step += 1
                 batch_counter = 0
                 average_loss = 0
                 if args.num_steps is not None and step >= args.num_steps:
                     break
 
+        if data_layer_test and epoch % args.test_frequency == 0:
+            print_once("Doing Test ....................... ......  ... .. . .")
+            eval(data_layer_test, 'test', logger, epoch)
+        if epoch % args.eval_frequency == 0:
+            print_once("Doing Evaluation ....................... ......  ... .. . .")
+            eval(data_layer_eval, 'eval', logger, epoch)
         if args.num_steps is not None and step >= args.num_steps:
             break
         print_once("Finished epoch {0} in {1}".format(epoch, time.time() - last_epoch_start))
@@ -423,8 +423,8 @@ def parse_args():
     parser.add_argument("--num_epochs", default=10, type=int, help='number of training epochs. if number of steps if specified will overwrite this')
     parser.add_argument("--num_steps", default=None, type=int, help='if specified overwrites num_epochs and will only train for this number of iterations')
     parser.add_argument("--save_freq", dest="save_frequency", default=300, type=int, help='number of epochs until saving checkpoint. will save at the end of training too.')
-    parser.add_argument("--eval_freq", dest="eval_frequency", default=200, type=int, help='number of iterations until doing evaluation on full dataset')
-    parser.add_argument("--test_freq", dest="test_frequency", default=200, type=int, help='number of iterations until doing test on full dataset')
+    parser.add_argument("--eval_freq", dest="eval_frequency", default=1, type=int, help='number of epochs until doing evaluation on full dataset')
+    parser.add_argument("--test_freq", dest="test_frequency", default=2, type=int, help='number of epochs until doing test on full dataset')
     parser.add_argument("--train_freq", dest="train_frequency", default=25, type=int, help='number of iterations until printing training statistics on the past iteration')
     parser.add_argument("--lr", default=1e-3, type=float, help='learning rate')
     parser.add_argument("--weight_decay", default=1e-3, type=float, help='weight decay rate')
