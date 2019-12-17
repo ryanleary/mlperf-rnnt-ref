@@ -25,12 +25,16 @@ import numpy as np
 import math
 from dataset import AudioToTextDataLayer
 from helpers import monitor_asr_train_progress, process_evaluation_batch, process_evaluation_epoch, Optimization, add_blank_label, AmpOptimizations, model_multi_gpu, print_dict, print_once
-from model_rnnt import AudioPreprocessing, RNNT
+from model_rnnt import RNNT
 from decoders import RNNTGreedyDecoder
 from loss import RNNTLoss
 from optimizers import Novograd, AdamW
 
+import torchvision
+
 from tb_logger import DummyLogger, TensorBoardLogger
+import preprocessing
+
 
 def lr_decay(N, step, learning_rate):
     """
@@ -85,6 +89,7 @@ def train(
         optim_level,
         labels,
         multi_gpu,
+        transforms,
         args,
         logger,
         fn_lr_policy):
@@ -114,13 +119,8 @@ def train(
             }
             eval_dataloader = data_layer_eval.data_iterator
             for data in eval_dataloader:
-                tensors = []
-                for d in data:
-                    if isinstance(d, torch.Tensor):
-                        tensors.append(d.cuda())
-                    else:
-                        tensors.append(d)
-                t_audio_signal_e, t_a_sig_length_e, t_transcript_e, t_transcript_len_e = tensors
+
+                t_audio_signal_e, t_a_sig_length_e, t_transcript_e, t_transcript_len_e = transforms(data)
 
                 model.eval()
                 t_log_probs_e, (x_len, y_len) = model(
@@ -164,12 +164,6 @@ def train(
         batch_counter = 0
         average_loss = 0
         for data in train_dataloader:
-            tensors = []
-            for d in data:
-                if isinstance(d, torch.Tensor):
-                    tensors.append(d.cuda())
-                else:
-                    tensors.append(d)
 
             if batch_counter == 0:
 
@@ -179,7 +173,7 @@ def train(
                 optimizer.zero_grad()
                 last_iter_start = time.time()
 
-            t_audio_signal_t, t_a_sig_length_t, t_transcript_t, t_transcript_len_t = tensors
+            t_audio_signal_t, t_a_sig_length_t, t_transcript_t, t_transcript_len_t = transforms(data)
             model.train()
 
             t_log_probs_t, (x_len, y_len) = model(
@@ -293,6 +287,15 @@ def main(args):
     if args.batch_size % args.gradient_accumulation_steps != 0:
         raise ValueError('gradient accumulation step {} is not divisible by batch size {}'.format(args.gradient_accumulation_steps, args.batch_size))
 
+
+    preprocessor = preprocessing.AudioPreprocessing(**featurizer_config)
+    preprocessor.cuda()
+
+    transforms = torchvision.transforms.Compose([
+        lambda xs: [x.cuda() for x in xs],
+        lambda x: [*preprocessor(x[0:2]), *x[2:4]],
+        lambda x: [x[0].permute(2, 0, 1), *x[1:]],
+    ])
 
     data_layer = AudioToTextDataLayer(
                                     dataset_dir=args.dataset_dir,
@@ -408,6 +411,7 @@ def main(args):
         loss_fn=loss_fn,
         greedy_decoder=greedy_decoder,
         optimizer=optimizer,
+        transforms=transforms,
         labels=ctc_vocab,
         optim_level=optim_level,
         multi_gpu=multi_gpu,

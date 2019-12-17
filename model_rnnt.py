@@ -12,123 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import random
-
 import numpy as np
 import torch
 import torch.nn as nn
-from apex import amp
 
-from helpers import Optimization
-from parts.features import FeatureFactory
 from rnn import rnn
 from rnn import StackTime
-
-
-jasper_activations = {
-    "hardtanh": nn.Hardtanh,
-    "relu": nn.ReLU,
-    "selu": nn.SELU,
-}
-
-
-class AudioPreprocessing(nn.Module):
-    """GPU accelerated audio preprocessing
-    """
-    def __init__(self, **kwargs):
-        nn.Module.__init__(self)    # For PyTorch API
-        self.optim_level = kwargs.get('optimization_level', Optimization.nothing)
-        self.featurizer = FeatureFactory.from_config(kwargs)
-
-    def forward(self, x):
-        input_signal, length = x
-        length.requires_grad_(False)
-        if self.optim_level not in  [Optimization.nothing, Optimization.mxprO0, Optimization.mxprO3]:
-            with amp.disable_casts():
-                processed_signal = self.featurizer(x)
-                processed_length = self.featurizer.get_seq_len(length)
-        else:
-                processed_signal = self.featurizer(x)
-                processed_length = self.featurizer.get_seq_len(length)
-        return processed_signal, processed_length
-
-
-class SpectrogramAugmentation(nn.Module):
-    """Spectrogram augmentation
-    """
-    def __init__(self, **kwargs):
-        nn.Module.__init__(self)
-        self.spec_cutout_regions = SpecCutoutRegions(kwargs)
-        self.spec_augment = SpecAugment(kwargs)
-
-    @torch.no_grad()
-    def forward(self, input_spec):
-        augmented_spec = self.spec_cutout_regions(input_spec)
-        augmented_spec = self.spec_augment(augmented_spec)
-        return augmented_spec
-
-
-class SpecAugment(nn.Module):
-    """Spec augment. refer to https://arxiv.org/abs/1904.08779
-    """
-    def __init__(self, cfg):
-        super(SpecAugment, self).__init__()
-        self.cutout_x_regions = cfg.get('cutout_x_regions', 0)
-        self.cutout_y_regions = cfg.get('cutout_y_regions', 0)
-
-        self.cutout_x_width = cfg.get('cutout_x_width', 10)
-        self.cutout_y_width = cfg.get('cutout_y_width', 10)
-
-    @torch.no_grad()
-    def forward(self, x):
-        sh = x.shape
-
-        mask = torch.zeros(x.shape).bool()
-        for idx in range(sh[0]):
-            for _ in range(self.cutout_x_regions):
-                cutout_x_left = int(random.uniform(0, sh[1] - self.cutout_x_width))
-
-                mask[idx, cutout_x_left:cutout_x_left + self.cutout_x_width, :] = 1
-
-            for _ in range(self.cutout_y_regions):
-                cutout_y_left = int(random.uniform(0, sh[2] - self.cutout_y_width))
-
-                mask[idx, :, cutout_y_left:cutout_y_left + self.cutout_y_width] = 1
-
-        x = x.masked_fill(mask.to(device=x.device), 0)
-
-        return x
-
-
-class SpecCutoutRegions(nn.Module):
-    """Cutout. refer to https://arxiv.org/pdf/1708.04552.pdf
-    """
-    def __init__(self, cfg):
-        super(SpecCutoutRegions, self).__init__()
-
-        self.cutout_rect_regions = cfg.get('cutout_rect_regions', 0)
-        self.cutout_rect_time = cfg.get('cutout_rect_time', 5)
-        self.cutout_rect_freq = cfg.get('cutout_rect_freq', 20)
-
-    @torch.no_grad()
-    def forward(self, x):
-        sh = x.shape
-
-        mask = torch.zeros(x.shape).bool()
-
-        for idx in range(sh[0]):
-            for i in range(self.cutout_rect_regions):
-                cutout_rect_x = int(random.uniform(
-                        0, sh[1] - self.cutout_rect_freq))
-                cutout_rect_y = int(random.uniform(
-                        0, sh[2] - self.cutout_rect_time))
-
-                mask[idx, cutout_rect_x:cutout_rect_x + self.cutout_rect_freq,
-                         cutout_rect_y:cutout_rect_y + self.cutout_rect_time] = 1
-
-        x = x.masked_fill(mask.to(device=x.device), 0)
-
-        return x
 
 
 class RNNT(torch.nn.Module):
@@ -152,13 +41,10 @@ class RNNT(torch.nn.Module):
     def __init__(self, rnnt=None, num_classes=1, **kwargs):
         super().__init__()
         if kwargs.get("no_featurizer", False):
-            self.audio_preprocessor = None
             in_features = kwargs.get("in_features")
         else:
             feat_config = kwargs.get("feature_config")
-            self.audio_preprocessor = AudioPreprocessing(**feat_config)
             in_features = feat_config['features'] * feat_config.get("frame_splicing", 1)
-        self.data_spectr_augmentation = SpectrogramAugmentation(**kwargs.get("feature_config"))
 
         self._pred_n_hidden = rnnt['pred_n_hidden']
 
@@ -261,16 +147,6 @@ class RNNT(torch.nn.Module):
         # x: (B, channels, features, seq_len)
         (x, y), (x_lens, y_lens) = batch
         y = label_collate(y)
-
-        # Apply optional preprocessing
-        if self.audio_preprocessor is not None:
-            x, x_lens = self.audio_preprocessor((x, x_lens))
-        # Apply optional spectral augmentation
-        if self.training:
-            x = self.data_spectr_augmentation(input_spec=x)
-
-        batch, features, seq_len = x.shape
-        x = x.view(batch, features, seq_len).permute(2, 0, 1)
 
         f, x_lens = self.encode((x, x_lens))
 

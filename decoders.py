@@ -70,11 +70,7 @@ class RNNTGreedyDecoder(TransducerDecoder):
         """
         with torch.no_grad():
             # Apply optional preprocessing
-            if self._model.audio_preprocessor is not None:
-                x, out_lens = self._model.audio_preprocessor((x, out_lens))
 
-            batch, features, seq_len = x.shape
-            x = x.view(batch, features, seq_len).permute(2, 0, 1)
             logits, out_lens = self._model.encode((x, out_lens))
 
             output = []
