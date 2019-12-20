@@ -66,11 +66,11 @@ encoder_n_hidden = 1024
 encoder_pre_rnn_layers = 2
 encoder_stack_time_factor = 2
 encoder_post_rnn_layers = 3
-pred_n_hidden = 1024
+pred_n_hidden = 512
 pred_rnn_layers = 2
 forget_gate_bias = 1.0
-joint_n_hidden = 640
-dropout=0.0
+joint_n_hidden = 512
+dropout=0.32
 
 
 [labels]
