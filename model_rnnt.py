@@ -37,8 +37,25 @@ class RNNT(torch.nn.Module):
         pred_rnn_layers: Prediction network number of layers.
         joint_n_hidden: Internal hidden unit size of the joint network.
         rnn_type: string. Type of rnn in SUPPORTED_RNNS.
+        memory_efficient: If :py:data:`True`, the joint network combines the
+            encoder and decoder input in a memory efficient way. It does this
+            by removing all padding in the audio sequences and label
+            sequences as proposed in `Improving RNN Transducer Modeling for
+            End-to-End Speech Recognition <https://arxiv.org/abs/1909.12415>`_
+            instead of broadcasting to the full hidden-size
+            :py:class:`torch.Tensor` of size ``[batch, max_seq_len,
+            max_label_length, encoder_out_feat + pred_net_out_feat]``.
+
+            .. note::
+
+                This memory efficient combination adds substantial overhead.
+                It should only be :py:data:`True` if the modification enables
+                a doubling of batch size as in our experience, this more than
+                offsets the added overhead. **In particular,
+                ``memory_efficient = True`` is not likely to be appropriate
+                for low batch-size inference**.
     """
-    def __init__(self, rnnt=None, num_classes=1, **kwargs):
+    def __init__(self, rnnt=None, num_classes=1, memory_efficient=True, **kwargs):
         super().__init__()
         if kwargs.get("no_featurizer", False):
             in_features = kwargs.get("in_features")
@@ -84,6 +101,9 @@ class RNNT(torch.nn.Module):
             rnnt["joint_n_hidden"],
             rnnt["dropout"],
         )
+        self.memory_efficient = memory_efficient
+        self.use_cuda = torch.cuda.is_available()
+        self._device = "cuda:0" if self.use_cuda else "cpu"
 
     def _encoder(self, in_features, encoder_n_hidden,
                  encoder_pre_rnn_layers, encoder_post_rnn_layers,
@@ -148,9 +168,9 @@ class RNNT(torch.nn.Module):
         (x, y), (x_lens, y_lens) = batch
         y = label_collate(y)
 
-        f, x_lens = self.encode((x, x_lens))
+        f = self.encode((x, x_lens))
 
-        g, _ = self.predict(y, state)
+        g, _ = self.predict((y, y_lens), state)
         out = self.joint(f, g)
 
         return out, (x_lens, y_lens)
@@ -172,7 +192,7 @@ class RNNT(torch.nn.Module):
 
         return x.transpose(0, 1), x_lens
 
-    def predict(self, y, state=None, add_sos=True):
+    def predict(self, inp, state=None, add_sos=True):
         """
         B - batch size
         U - label length
@@ -180,16 +200,18 @@ class RNNT(torch.nn.Module):
         L - Number of decoder layers = 2
 
         Args:
-            y: (B, U)
+            inp: Tuple: (y, y_lens) where y: (B, U)
 
         Returns:
-            Tuple (g, hid) where:
-                g: (B, U + 1, H)
+            Tuple (out, hid) where:
+                out: Tuple (g, g_lens) where g: (B, U + 1, H)
                 hid: (h, c) where h is the final sequence hidden state and c is
                     the final cell state:
                         h (tensor), shape (L, B, H)
                         c (tensor), shape (L, B, H)
         """
+        y, y_lens = inp
+
         if y is not None:
             # (B, U) -> (B, U, H)
             y = self.prediction["embed"](y)
@@ -205,6 +227,7 @@ class RNNT(torch.nn.Module):
             B, U, H = y.shape
             start = torch.zeros((B, 1, H)).to(device=y.device, dtype=y.dtype)
             y = torch.cat([start, y], dim=1).contiguous()   # (B, U + 1, H)
+            y_lens += 1
         else:
             start = None   # makes del call later easier
 
@@ -220,31 +243,85 @@ class RNNT(torch.nn.Module):
         g, hid = self.prediction["dec_rnn"](y, state)
         g = g.transpose(0, 1)#.contiguous()   # (B, U + 1, H)
         del y, start, state
-        return g, hid
+        return (g, y_lens), hid
 
-    def joint(self, f, g):
+    def joint(self, enc, dec):
         """
-        f should be shape (B, T, H)
-        g should be shape (B, U + 1, H)
+        enc should be Tuple (f, f_lens) where f shape: (B, T, H)
+        dec should be Tuple (f, f_lens)shape (B, U + 1, H)
 
         returns:
             logits of shape (B, T, U, K + 1)
         """
-        # Combine the input states and the output states
+        (f, f_lens), (g, g_lens) = enc, dec
+
         B, T, H = f.shape
         B, U_, H2 = g.shape
 
-        f = f.unsqueeze(dim=2)   # (B, T, 1, H)
-        f = f.expand((B, T, U_, H))
+        if not self.memory_efficient:
+            f = f.unsqueeze(dim=2)  # (B, T, 1, H)
+            f = f.expand((B, T, U_, H1))
 
-        g = g.unsqueeze(dim=1)   # (B, 1, U + 1, H)
-        g = g.expand((B, T, U_, H2))
+            g = g.unsqueeze(dim=1)  # (B, 1, U_, H)
+            g = g.expand((B, T, U_, H2))
 
-        inp = torch.cat([f, g], dim=3)   # (B, T, U, 2H)
-        res = self.joint_net(inp)
-        del f, g, inp
-        return res
+            h = torch.cat([f, g], dim=3)  # (B, T, U_, H1 + H2)
 
+            h = self.joint_net(h)
+
+        else:
+            # Get masks of lengths for memory efficient combine
+            f_mask = self._get_mask(f_lens)
+            g_mask = self._get_mask(g_lens)
+            self.mask = f_mask.unsqueeze(2) * g_mask.unsqueeze(1)
+
+            h = self._memory_efficient_combine(((f, f_lens), (g, g_lens)))
+            h = self.joint_net(h)
+            h = self._reverse_efficient_combine(h, f_lens, g_lens)
+        return h
+
+
+    def _get_mask(self, lens):
+        """Returns a boolean-mask based on lens."""
+        # Ensure lens are on gpu if available
+        if self.use_cuda:
+            lens = lens.cuda()
+        max_len = lens.max()
+        return torch.arange(
+            max_len, dtype=lens.dtype, device=self._device
+        ).expand(len(lens), max_len) < lens.unsqueeze(1)
+
+    def _memory_efficient_combine(self, x):
+        """Combines encoder and decoder output in a memory efficient way."""
+        (f, f_lens), (g, g_lens) = x
+        B, T, H1 = f.shape
+        B2, U_, H2 = g.shape
+        assert B == B2
+        assert (
+            f_lens.max() == T
+        ), f"seq len must equal T but {f_lens.max()} != {T}"
+        assert (
+            g_lens.max() == U_
+        ), f"label seq len  must equal U_ but {g_lens.max()} != {U_}"
+
+        f = f.unsqueeze(dim=2).expand((B, T, U_, H1))[self.mask]
+        g = g.unsqueeze(dim=1).expand((B, T, U_, H2))[self.mask]
+
+        return torch.cat([f, g], dim=1)
+
+    def _reverse_efficient_combine(self, h, f_lens, g_lens):
+        """Reverses :py:meth:`_memory_efficient_combine`."""
+
+        T = f_lens.max()
+        U_ = g_lens.max()
+        V_ = h.shape[1]  # V_ = Vocab + 1
+        B = len(g_lens)
+        if self.use_cuda:
+            h = h.cuda()
+        res = torch.zeros(B, T, U_, V_, device=self._device, dtype=h.dtype)
+        
+        res[self.mask] = h
+        return res, f_lens
 
 def label_collate(labels):
     """Collates the label inputs for the rnn-t prediction network.
