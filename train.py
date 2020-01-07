@@ -292,10 +292,14 @@ def main(args):
     preprocessor = preprocessing.AudioPreprocessing(**featurizer_config)
     preprocessor.cuda()
 
+    cutout = preprocessing.SpectrogramAugmentation(**featurizer_config)
+    cutout.cuda()
+
     transforms = torchvision.transforms.Compose([
-        lambda xs: [x.cuda() for x in xs],
-        lambda x: [*preprocessor(x[0:2]), *x[2:4]],
-        lambda x: [x[0].permute(2, 0, 1), *x[1:]],
+        lambda xs, isTrain: [x.cuda() for x in xs],
+        lambda xs, isTrain: [*preprocessor(xs[0:2]), *xs[2:]],
+        lambda xs, isTrain: [*cutout(xs[0:1]),       *xs[1:]] if isTrain else xs,
+        lambda xs, isTrain: [xs[0].permute(2, 0, 1), *xs[1:]],
     ])
 
     data_layer = AudioToTextDataLayer(
