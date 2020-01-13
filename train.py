@@ -77,12 +77,61 @@ def save(model, optimizer, epoch, output_dir):
     print_once('Saved.')
 
 
+def evaluator(model, data_transforms, loss_fn, greedy_decoder, labels, eval_datasets, logger):
+    """Evaluates model on evaluation dataset
+    """
+
+    def evalutaion(epoch=0):
+        model.eval()
+
+        for dataset, frequency, name in eval_datasets:
+            if epoch % frequency != 0:
+                continue
+
+            print_once(f"Doing {name} ....................... ......  ... .. . .")
+
+            with torch.no_grad():
+                _global_var_dict = {
+                    'EvalLoss': [],
+                    'predictions': [],
+                    'transcripts': [],
+                }
+                dataloader = dataset.data_iterator
+                for data in dataloader:
+
+                    t_audio_signal_e, t_a_sig_length_e, t_transcript_e, t_transcript_len_e = data_transforms(data)
+
+                    t_log_probs_e, (x_len, y_len) = model(
+                        ((t_audio_signal_e, t_transcript_e), (t_a_sig_length_e, t_transcript_len_e)),
+                    )
+                    t_loss_e = loss_fn(
+                        (t_log_probs_e, x_len), (t_transcript_e, y_len)
+                    )
+                    del t_log_probs_e
+
+                    t_predictions_e = greedy_decoder.decode(t_audio_signal_e, t_a_sig_length_e)
+
+                    values_dict = dict(
+                        loss=[t_loss_e],
+                        predictions=[t_predictions_e],
+                        transcript=[t_transcript_e],
+                        transcript_length=[t_transcript_len_e]
+                    )
+                    process_evaluation_batch(values_dict, _global_var_dict, labels=labels)
+
+                # final aggregation across all workers and minibatches) and logging of results
+                wer, eloss = process_evaluation_epoch(_global_var_dict)
+                logger.log_scalar('loss', eloss, epoch, name)
+                logger.log_scalar('wer', wer, epoch, name)
+
+                print_once(f"==========>>>>>>{name} Loss: {eloss}\n")
+                print_once(f"==========>>>>>>{name} WER: {wer}\n")
+
+    return evalutaion
 
 
 def train(
         data_layer,
-        data_layer_eval,
-        data_layer_test,
         model,
         loss_fn,
         greedy_decoder,
@@ -90,15 +139,14 @@ def train(
         optim_level,
         labels,
         multi_gpu,
-        transforms,
+        data_transforms,
         args,
+        evalutaion,
         logger,
         fn_lr_policy):
     """Trains model
     Args:
         data_layer: training data layer
-        data_layer_eval: evaluation data layer
-        data_layer_test: test data layer
         model: model ( encapsulates data processing, encoder, decoder)
         loss_fn: loss function
         greedy_decoder: greedy ctc decoder
@@ -109,47 +157,6 @@ def train(
         args: script input argument list
         fn_lr_policy: function returning lr in given step
     """
-    def eval(data_layer_eval, stage, logger, epochs):
-        """Evaluates model on evaluation dataset
-        """
-        with torch.no_grad():
-            _global_var_dict = {
-                'EvalLoss': [],
-                'predictions': [],
-                'transcripts': [],
-            }
-            eval_dataloader = data_layer_eval.data_iterator
-            for data in eval_dataloader:
-
-                t_audio_signal_e, t_a_sig_length_e, t_transcript_e, t_transcript_len_e = transforms(data)
-
-                model.eval()
-                t_log_probs_e, (x_len, y_len) = model(
-                    ((t_audio_signal_e, t_transcript_e), (t_a_sig_length_e, t_transcript_len_e)),
-                )
-                t_loss_e = loss_fn(
-                    (t_log_probs_e, x_len), (t_transcript_e, y_len)
-                )
-                del t_log_probs_e
-
-                t_predictions_e = greedy_decoder.decode(t_audio_signal_e, t_a_sig_length_e)
-
-                values_dict = dict(
-                    loss=[t_loss_e],
-                    predictions=[t_predictions_e],
-                    transcript=[t_transcript_e],
-                    transcript_length=[t_transcript_len_e]
-                )
-                process_evaluation_batch(values_dict, _global_var_dict, labels=labels)
-
-            # final aggregation across all workers and minibatches) and logging of results
-            wer, eloss = process_evaluation_epoch(_global_var_dict)
-            logger.log_scalar('loss', eloss, epoch, stage)
-            logger.log_scalar('wer', wer, epoch, stage)
-
-            print_once("==========>>>>>>{} Loss: {}\n".format('Evaluation' if stage == 'eval' else 'Test', eloss))
-            print_once("==========>>>>>>{} WER: {}\n".format('Evaluation' if stage == 'eval' else 'Test', wer))
-
     print_once("Starting .....")
     start_time = time.time()
 
@@ -174,7 +181,7 @@ def train(
                 optimizer.zero_grad()
                 last_iter_start = time.time()
 
-            t_audio_signal_t, t_a_sig_length_t, t_transcript_t, t_transcript_len_t = transforms(data)
+            t_audio_signal_t, t_a_sig_length_t, t_transcript_t, t_transcript_len_t = data_transforms(data)
             model.train()
 
             t_log_probs_t, (x_len, y_len) = model(
@@ -215,12 +222,8 @@ def train(
                 if args.num_steps is not None and step >= args.num_steps:
                     break
 
-        if data_layer_test and epoch % args.test_frequency == 0:
-            print_once("Doing Test ....................... ......  ... .. . .")
-            eval(data_layer_test, 'test', logger, epoch)
-        if epoch % args.eval_frequency == 0:
-            print_once("Doing Evaluation ....................... ......  ... .. . .")
-            eval(data_layer_eval, 'eval', logger, epoch)
+        evalutaion(epoch)
+
         if args.num_steps is not None and step >= args.num_steps:
             break
         print_once("Finished epoch {0} in {1}".format(epoch, time.time() - last_epoch_start))
@@ -231,9 +234,7 @@ def train(
             break
     print_once("Done in {0}".format(time.time() - start_time))
     print_once("Final Evaluation ....................... ......  ... .. . .")
-    eval(data_layer_eval, 'eval', logger, epoch)
-    if data_layer_test:
-        eval(data_layer_test, 'test', logger, epoch)
+    evalutaion()
     save(model, optimizer, epoch, output_dir=args.output_dir)
 
 def main(args):
@@ -292,14 +293,20 @@ def main(args):
     preprocessor = preprocessing.AudioPreprocessing(**featurizer_config)
     preprocessor.cuda()
 
-    cutout = preprocessing.SpectrogramAugmentation(**featurizer_config)
-    cutout.cuda()
+    augmentations = preprocessing.SpectrogramAugmentation(**featurizer_config)
+    augmentations.cuda()
 
-    transforms = torchvision.transforms.Compose([
-        lambda xs, isTrain: [x.cuda() for x in xs],
-        lambda xs, isTrain: [*preprocessor(xs[0:2]), *xs[2:]],
-        lambda xs, isTrain: [*cutout(xs[0:1]),       *xs[1:]] if isTrain else xs,
-        lambda xs, isTrain: [xs[0].permute(2, 0, 1), *xs[1:]],
+    train_transforms = torchvision.transforms.Compose([
+        lambda xs: [x.cuda() for x in xs],
+        lambda xs: [*preprocessor(xs[0:2]), *xs[2:]],
+        lambda xs: [augmentations(xs[0]),   *xs[1:]],
+        lambda xs: [xs[0].permute(2, 0, 1), *xs[1:]],
+    ])
+
+    eval_transforms = torchvision.transforms.Compose([
+        lambda xs: [x.cuda() for x in xs],
+        lambda xs: [*preprocessor(xs[0:2]), *xs[2:]],
+        lambda xs: [xs[0].permute(2, 0, 1), *xs[1:]],
     ])
 
     data_layer = AudioToTextDataLayer(
@@ -313,28 +320,34 @@ def main(args):
                                     pad_to_max=args.pad_to_max,
                                     sampler=sampler_type)
 
-    data_layer_eval = AudioToTextDataLayer(
-                                    dataset_dir=args.dataset_dir,
-                                    featurizer_config=featurizer_config_eval,
-                                    manifest_filepath=val_manifest,
-                                    labels=dataset_vocab,
-                                    batch_size=args.eval_batch_size,
-                                    multi_gpu=multi_gpu,
-                                    pad_to_max=args.pad_to_max
-                                    )
+    eval_datasets = [(
+        AudioToTextDataLayer(
+            dataset_dir=args.dataset_dir,
+            featurizer_config=featurizer_config_eval,
+            manifest_filepath=val_manifest,
+            labels=dataset_vocab,
+            batch_size=args.eval_batch_size,
+            multi_gpu=multi_gpu,
+            pad_to_max=args.pad_to_max
+        ),
+        args.eval_frequency,
+        'Eval clean',
+    )]
 
     if tst_manifest:
-        data_layer_test = AudioToTextDataLayer(
-                                        dataset_dir=args.dataset_dir,
-                                        featurizer_config=featurizer_config_eval,
-                                        manifest_filepath=tst_manifest,
-                                        labels=dataset_vocab,
-                                        batch_size=args.eval_batch_size,
-                                        multi_gpu=multi_gpu,
-                                        pad_to_max=args.pad_to_max
-                                        )
-    else:
-        data_layer_test = None
+        eval_datasets.append((
+            AudioToTextDataLayer(
+                dataset_dir=args.dataset_dir,
+                featurizer_config=featurizer_config_eval,
+                manifest_filepath=tst_manifest,
+                labels=dataset_vocab,
+                batch_size=args.eval_batch_size,
+                multi_gpu=multi_gpu,
+                pad_to_max=args.pad_to_max
+            ),
+            args.test_frequency,
+            'Test other',
+        ))
 
     model = RNNT(
         feature_config=featurizer_config,
@@ -410,17 +423,16 @@ def main(args):
 
     train(
         data_layer=data_layer,
-        data_layer_eval=data_layer_eval,
-        data_layer_test=data_layer_test,
         model=model,
         loss_fn=loss_fn,
         greedy_decoder=greedy_decoder,
         optimizer=optimizer,
-        transforms=transforms,
+        data_transforms=train_transforms,
         labels=ctc_vocab,
         optim_level=optim_level,
         multi_gpu=multi_gpu,
         fn_lr_policy=fn_lr_policy,
+        evalutaion=evaluator(model, eval_transforms, loss_fn, greedy_decoder, ctc_vocab, eval_datasets, logger),
         logger=logger,
         args=args)
 
